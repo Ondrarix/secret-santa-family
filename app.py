@@ -453,6 +453,28 @@ def api_my_assignment():
     return jsonify({"name": None, "message": "No assignment yet. Ask the admin to draw!"})
 
 
+# ── User: Change Password ────────────────────────────────────────────
+@app.route("/api/me/password", methods=["POST"])
+@login_required
+def api_change_password():
+    data = request.get_json()
+    old_password = data.get("old_password", "")
+    new_password = data.get("new_password", "")
+    if not old_password or not new_password:
+        return jsonify({"error": "both fields required"}), 400
+    if len(new_password) < 4:
+        return jsonify({"error": "password must be at least 4 characters"}), 400
+    conn = get_db()
+    row = conn.execute("SELECT password_hash FROM users WHERE id = ?", (current_user.id,)).fetchone()
+    if not row or not check_password_hash(row["password_hash"], old_password):
+        conn.close()
+        return jsonify({"error": "current password is wrong"}), 401
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (generate_password_hash(new_password), current_user.id))
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Password changed"})
+
+
 # ── Seed Admin Account ───────────────────────────────────────────────
 def seed_admin():
     """Create default admin if no users exist."""

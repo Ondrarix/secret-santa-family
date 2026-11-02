@@ -25,6 +25,21 @@
         </div>
         <ul id="exclusion-list" class="exclusion-list"></ul>
     </div>
+
+    <!-- Change Password -->
+    <div class="card">
+        <h2>🔒 Change Password</h2>
+        <div id="password-form">
+            <div class="form-group">
+                <input type="password" id="oldPassword" placeholder="Current password">
+            </div>
+            <div class="form-group">
+                <input type="password" id="newPassword" placeholder="New password (min 4 characters)">
+            </div>
+            <button class="btn btn-secondary btn-block" id="changePasswordBtn">Update Password</button>
+            <div id="password-result" style="margin-top:0.5rem;"></div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -122,6 +137,35 @@ document.getElementById('add-exclusion-btn').addEventListener('click', async () 
 
 document.getElementById('exclusion-select').addEventListener('change', function() {
     document.getElementById('add-exclusion-btn').disabled = !this.value;
+});
+
+// ── Change Password ────────────────────────────────────────────────
+document.getElementById('changePasswordBtn').addEventListener('click', async () => {
+    const oldPw = document.getElementById('oldPassword').value;
+    const newPw = document.getElementById('newPassword').value;
+    const result = document.getElementById('password-result');
+    if (!oldPw || !newPw) {
+        result.innerHTML = '<div class="alert alert-error">Both fields required.</div>';
+        return;
+    }
+    if (newPw.length < 4) {
+        result.innerHTML = '<div class="alert alert-error">New password must be at least 4 characters.</div>';
+        return;
+    }
+
+    const res = await fetch(`${API}/me/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        result.innerHTML = '<div class="alert alert-success">✅ Password updated!</div>';
+        document.getElementById('oldPassword').value = '';
+        document.getElementById('newPassword').value = '';
+    } else {
+        result.innerHTML = `<div class="alert alert-error">${esc(data.error || 'Failed')}</div>`;
+    }
 });
 
 // Init
