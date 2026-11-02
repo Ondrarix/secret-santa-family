@@ -133,6 +133,13 @@ def admin_panel():
     return render_template("admin.html")
 
 
+# ── User: Dashboard ──────────────────────────────────────────────────
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    return render_template("dashboard.html")
+
+
 # ── Routes: API ──────────────────────────────────────────────────────
 @app.route("/api/me")
 @login_required
