@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard">
+    <h1>Welcome, {{ current_user.name }}! 🎄</h1>
+
+    <!-- My Assignment -->
+    <div class="card">
+        <h2>🎁 Your Assignment</h2>
+        <div id="assignment-container">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+
+    <!-- My Exclusions -->
+    <div class="card">
+        <h2>🚫 My Exclusions</h2>
+        <p class="card-hint">People you don't want to draw. (Admin can override these.)</p>
+        <div id="exclusion-form">
+            <div class="input-row">
+                <select id="exclusion-select" disabled>
+                    <option>Loading...</option>
+                </select>
+                <button class="btn btn-sm btn-secondary" id="add-exclusion-btn" disabled>Add</button>
+            </div>
+        </div>
+        <ul id="exclusion-list" class="exclusion-list"></ul>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const API = '/api';
+
+async function loadAssignment() {
+    const res = await fetch(`${API}/me/assignment`);
+    const data = await res.json();
+    const container = document.getElementById('assignment-container');
+    if (data.name) {
+        container.innerHTML = `
+            <div class="assignment-revealed">
+                <span class="assignment-label">You are giving to:</span>
+                <span class="assignment-name">${esc(data.name)}</span>
+                <div class="assignment-emoji">🎁</div>
+            </div>`;
+    } else {
+        container.innerHTML = `
+            <div class="assignment-pending">
+                <p>${esc(data.message || 'No assignment yet.')}</p>
+            </div>`;
+    }
+}
+
+async function loadExclusions() {
+    const res = await fetch(`${API}/user/exclusions`);
+    const data = await res.json();
+
+    // Populate select
+    const select = document.getElementById('exclusion-select');
+    const others = data.others || [];
+    select.innerHTML = '<option value="">Select someone to exclude...</option>' +
+        others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
+    select.disabled = false;
+
+    // Render list
+    renderExclusionList(data.excluded || []);
+}
+
+function renderExclusionList(excluded) {
+    const list = document.getElementById('exclusion-list');
+    if (excluded.length === 0) {
+        list.innerHTML = '<li class="empty-hint">No exclusions set.</li>';
+        return;
+    }
+    list.innerHTML = excluded.map(e => `
+        <li class="exclusion-item">
+            <span>🚫 ${esc(e.name)}</span>
+            <button class="btn-remove" data-id="${e.id}">✕</button>
+        </li>
+    `).join('');
+
+    list.querySelectorAll('.btn-remove').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.dataset.id;
+            const name = excluded.find(x => x.id == id)?.name;
+            if (!confirm(`Remove exclusion: ${name}?`)) return;
+            const res = await fetch(`${API}/user/exclusions/${id}`, { method: 'DELETE' });
+            if (res.ok) loadExclusions();
+            else alert('Failed to remove exclusion');
+        });
+    });
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+// Add exclusion
+document.getElementById('add-exclusion-btn').addEventListener('click', async () => {
+    const select = document.getElementById('exclusion-select');
+    const userId = parseInt(select.value);
+    if (!userId) return;
+
+    try {
+        const res = await fetch(`${API}/user/exclusions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ excluded_user_id: userId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            select.value = '';
+            loadExclusions();
+        } else {
+            alert(data.error || 'Failed');
+        }
+    } catch (e) {
+        console.error(e);
+    }
+});
+
+document.getElementById('exclusion-select').addEventListener('change', function() {
+    document.getElementById('add-exclusion-btn').disabled = !this.value;
+});
+
+// Init
+loadAssignment();
+loadExclusions();
+</script>
+{% endblock %}

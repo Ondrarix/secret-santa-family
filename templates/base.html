@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎅 Secret Santa</title>
+    <link rel="stylesheet" href="/static/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% if current_user.is_authenticated %}
+    <nav class="navbar">
+        <a href="/" class="nav-brand">🎅 Secret Santa</a>
+        <div class="nav-right">
+            <span class="nav-user">{{ current_user.name }}</span>
+            {% if current_user.is_admin %}
+            <a href="/admin" class="nav-link">Admin</a>
+            {% endif %}
+            <a href="/logout" class="nav-link">Logout</a>
+        </div>
+    </nav>
+    {% endif %}
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

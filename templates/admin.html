@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="admin">
+    <h1>🎅 Admin Panel</h1>
+
+    <!-- Draw Section -->
+    <div class="card">
+        <h2>🎁 Draw Assignments</h2>
+        <p class="card-hint">Generates new assignments respecting all exclusions. This will clear any previous draw.</p>
+        <button class="btn btn-draw" id="drawBtn">🎲 Draw Now!</button>
+        <button class="btn btn-reset" id="resetBtn" style="margin-top:0.5rem;">Reset Assignments (keep users)</button>
+        <div id="draw-result" style="margin-top:1rem;"></div>
+    </div>
+
+    <!-- Users -->
+    <div class="card">
+        <h2>👥 Participants <span class="counter" id="userCount"></span></h2>
+        <div class="input-row" style="margin-bottom:1rem;">
+            <input type="text" id="newName" placeholder="New participant name" autocomplete="off">
+            <input type="password" id="newPassword" placeholder="Password" style="max-width:160px;">
+            <button class="btn btn-sm btn-secondary" id="addUserBtn">Add User</button>
+        </div>
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Exclusions</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="userTableBody"></tbody>
+        </table>
+    </div>
+
+    <!-- Exclusions -->
+    <div class="card">
+        <h2>🚫 Exclusions <span class="counter" id="exclusionCount"></span></h2>
+        <div class="input-row" style="margin-bottom:1rem;">
+            <select id="excludeSelect1" style="flex:1;"><option>Loading...</option></select>
+            <span style="color:#667;padding:0 0.5rem;">excludes</span>
+            <select id="excludeSelect2" style="flex:1;"><option>Loading...</option></select>
+            <button class="btn btn-sm btn-secondary" id="addExclusionBtn" disabled>Add</button>
+        </div>
+        <ul id="exclusionList" class="exclusion-list"></ul>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const API = '/api';
+
+// ── State ──────────────────────────────────────────────────────────
+let allUsers = [];
+let allExclusions = [];
+
+// ── Helpers ────────────────────────────────────────────────────────
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+// ── Load Users ─────────────────────────────────────────────────────
+async function loadUsers() {
+    const res = await fetch(`${API}/admin/users`);
+    allUsers = await res.json();
+    renderUserTable();
+    populateSelects();
+    document.getElementById('userCount').textContent = `(${allUsers.length})`;
+}
+
+function renderUserTable() {
+    const tbody = document.getElementById('userTableBody');
+    tbody.innerHTML = allUsers.map(u => `
+        <tr>
+            <td>${esc(u.name)}</td>
+            <td>${u.is_admin ? '<span class="badge-admin">Admin</span>' : 'Member'}</td>
+            <td>${u.exclusions}</td>
+            <td>
+                ${!u.is_admin ? `<button class="btn btn-sm btn-danger btn-delete-user" data-id="${u.id}">Remove</button>` : ''}
+            </td>
+        </tr>
+    `).join('');
+
+    tbody.querySelectorAll('.btn-delete-user').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!confirm(`Remove ${btn.dataset.id}?`)) return;
+            const res = await fetch(`${API}/admin/users/${btn.dataset.id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok) {
+                loadUsers();
+            } else {
+                alert(data.error || 'Failed');
+            }
+        });
+    });
+}
+
+// ── Add User ───────────────────────────────────────────────────────
+document.getElementById('addUserBtn').addEventListener('click', async () => {
+    const name = document.getElementById('newName').value.trim();
+    const password = document.getElementById('newPassword').value.trim();
+    if (!name || !password) { alert('Name and password required'); return; }
+    if (password.length < 4) { alert('Password must be at least 4 characters'); return; }
+
+    const res = await fetch(`${API}/admin/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        document.getElementById('newName').value = '';
+        document.getElementById('newPassword').value = '';
+        loadUsers();
+    } else {
+        alert(data.error);
+    }
+});
+
+document.getElementById('newName').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('addUserBtn').click(); });
+document.getElementById('newPassword').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('addUserBtn').click(); });
+
+// ── Exclusions ─────────────────────────────────────────────────────
+async function loadExclusions() {
+    const res = await fetch(`${API}/admin/exclusions`);
+    allExclusions = await res.json();
+    renderExclusionList();
+    document.getElementById('exclusionCount').textContent = `(${allExclusions.length})`;
+}
+
+function renderExclusionList() {
+    const list = document.getElementById('exclusionList');
+    if (allExclusions.length === 0) {
+        list.innerHTML = '<li class="empty-hint">No exclusions.</li>';
+        return;
+    }
+    list.innerHTML = allExclusions.map(e => `
+        <li class="exclusion-item">
+            <span>${esc(e.user)} 🚫 excludes 🚫 ${esc(e.excluded)}</span>
+            <button class="btn-remove" data-id="${e.id}">✕</button>
+        </li>
+    `).join('');
+
+    list.querySelectorAll('.btn-remove').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const id = btn.dataset.id;
+            const res = await fetch(`${API}/admin/exclusions/${id}`, { method: 'DELETE' });
+            if (res.ok) loadExclusions();
+        });
+    });
+}
+
+function populateSelects() {
+    const s1 = document.getElementById('excludeSelect1');
+    const s2 = document.getElementById('excludeSelect2');
+    const opts = allUsers.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+    s1.innerHTML = '<option value="">Select person...</option>' + opts;
+    s2.innerHTML = '<option value="">Select excluded...</option>' + opts;
+    s1.addEventListener('change', checkExclusionSelects);
+    s2.addEventListener('change', checkExclusionSelects);
+}
+
+function checkExclusionSelects() {
+    const s1 = document.getElementById('excludeSelect1');
+    const s2 = document.getElementById('excludeSelect2');
+    document.getElementById('addExclusionBtn').disabled =
+        !s1.value || !s2.value || s1.value === s2.value;
+}
+
+document.getElementById('addExclusionBtn').addEventListener('click', async () => {
+    const user_id = parseInt(document.getElementById('excludeSelect1').value);
+    const excluded_user_id = parseInt(document.getElementById('excludeSelect2').value);
+    const res = await fetch(`${API}/admin/exclusions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id, excluded_user_id })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        document.getElementById('excludeSelect1').value = '';
+        document.getElementById('excludeSelect2').value = '';
+        loadExclusions();
+    } else {
+        alert(data.error);
+    }
+});
+
+// ── Draw ───────────────────────────────────────────────────────────
+document.getElementById('drawBtn').addEventListener('click', async () => {
+    if (!confirm('Draw assignments? This will clear any previous draw and generate new ones.')) return;
+    const btn = document.getElementById('drawBtn');
+    btn.disabled = true;
+    btn.textContent = 'Drawing...';
+    document.getElementById('draw-result').innerHTML = '<div class="loading">Generating assignments...</div>';
+
+    try {
+        const res = await fetch(`${API}/admin/draw`, { method: 'POST' });
+        const data = await res.json();
+        const container = document.getElementById('draw-result');
+        if (res.ok) {
+            container.innerHTML = `
+                <div class="draw-success">
+                    <p>${esc(data.message)}</p>
+                    <table class="assignment-table">
+                        <thead><tr><th>Giver</th><th>→ Receiver</th></tr></thead>
+                        <tbody>
+                            ${data.assignments.map(a => `<tr><td>${esc(a.giver)}</td><td>→ ${esc(a.receiver)}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+            confettiBurst();
+        } else {
+            container.innerHTML = `<div class="alert alert-error">${esc(data.error)}</div>`;
+        }
+    } catch (e) {
+        document.getElementById('draw-result').innerHTML = '<div class="alert alert-error">Network error.</div>';
+    }
+    btn.disabled = false;
+    btn.textContent = '🎲 Draw Now!';
+});
+
+// ── Reset ──────────────────────────────────────────────────────────
+document.getElementById('resetBtn').addEventListener('click', async () => {
+    if (!confirm('Clear all assignments? Users and exclusions will be kept.')) return;
+    const res = await fetch(`${API}/admin/reset`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+        document.getElementById('draw-result').innerHTML = '<div class="alert alert-success">Assignments cleared.</div>';
+    }
+});
+
+// ── Confetti ───────────────────────────────────────────────────────
+function confettiBurst() {
+    const colors = ['#e74c3c','#2ecc71','#3498db','#f1c40f','#9b59b6'];
+    for (let i = 0; i < 60; i++) {
+        const p = document.createElement('div');
+        p.className = 'confetti-piece';
+        p.style.left = (20 + Math.random() * 60) + '%';
+        p.style.top = '-10px';
+        p.style.background = colors[Math.floor(Math.random() * colors.length)];
+        p.style.width = (6 + Math.random() * 8) + 'px';
+        p.style.height = (6 + Math.random() * 8) + 'px';
+        p.style.position = 'fixed';
+        p.style.zIndex = '10';
+        p.style.pointerEvents = 'none';
+        p.style.borderRadius = '2px';
+        const dur = 1.5 + Math.random() * 2;
+        p.style.animation = `confettiFall ${dur}s ease-out ${Math.random() * 0.5}s forwards`;
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 4000);
+    }
+}
+
+// ── Init ───────────────────────────────────────────────────────────
+loadUsers();
+loadExclusions();
+</script>
+{% endblock %}
