@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+secret_santa.db
+.env
+venv/
