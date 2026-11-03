@@ -16,6 +16,7 @@
             <span class="nav-user-group">{{ group.name if group else 'Admin' }}</span>
             {% endif %}
             <span class="nav-user">{{ current_user.name }}</span>
+            <a href="#" class="nav-link" id="settings-gear" title="Settings">⚙️</a>
             {% if current_user.is_admin %}
             <a href="/admin" class="nav-link">Admin</a>
             {% endif %}
@@ -27,5 +28,66 @@
         {% block content %}{% endblock %}
     </main>
     {% block scripts %}{% endblock %}
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;">⚙️ Settings</h3>
+                <button onclick="closeSettings()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;">✕</button>
+            </div>
+            <div class="form-group" style="margin-top:1rem;">
+                <label>Current Password</label>
+                <input type="password" id="settingsOldPassword" placeholder="Current password">
+            </div>
+            <div class="form-group">
+                <label>New Password</label>
+                <input type="password" id="settingsNewPassword" placeholder="New password (min 4 characters)">
+            </div>
+            <button class="btn btn-primary btn-block" id="settingsChangePasswordBtn">Update Password</button>
+            <div id="settings-password-result" style="margin-top:0.5rem;"></div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('settings-gear')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('settingsModal').style.display = 'flex';
+        });
+        document.getElementById('settingsModal')?.addEventListener('click', function(e) {
+            if (e.target === this) closeSettings();
+        });
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+            document.getElementById('settingsOldPassword').value = '';
+            document.getElementById('settingsNewPassword').value = '';
+            document.getElementById('settings-password-result').innerHTML = '';
+        }
+        document.getElementById('settingsChangePasswordBtn')?.addEventListener('click', async () => {
+            const oldPw = document.getElementById('settingsOldPassword').value;
+            const newPw = document.getElementById('settingsNewPassword').value;
+            const result = document.getElementById('settings-password-result');
+            if (!oldPw || !newPw) {
+                result.innerHTML = '<div class="alert alert-error">Both fields required.</div>';
+                return;
+            }
+            if (newPw.length < 4) {
+                result.innerHTML = '<div class="alert alert-error">New password must be at least 4 characters.</div>';
+                return;
+            }
+            const res = await fetch('/api/me/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                result.innerHTML = '<div class="alert alert-success">✅ Password updated!</div>';
+                document.getElementById('settingsOldPassword').value = '';
+                document.getElementById('settingsNewPassword').value = '';
+            } else {
+                result.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
+            }
+        });
+    </script>
 </body>
 </html>

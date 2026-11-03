@@ -74,6 +74,12 @@ def init_db():
             FOREIGN KEY (giver_id) REFERENCES users(id),
             FOREIGN KEY (receiver_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS wishes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            wish_text TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     """)
     conn.commit()
     conn.close()
@@ -852,6 +858,66 @@ def api_change_password():
     conn.commit()
     conn.close()
     return jsonify({"message": "Password changed"})
+
+
+# ── User: Wishes ─────────────────────────────────────────────────────
+@app.route("/api/me/wish", methods=["GET", "POST"])
+@login_required
+def api_user_wish():
+    conn = get_db()
+    if request.method == "POST":
+        data = request.get_json()
+        wish_text = (data.get("wish_text", "") or "").strip()[:500]
+        if not wish_text:
+            conn.close()
+            return jsonify({"error": "wish text required"}), 400
+        # Upsert: insert or update
+        try:
+            conn.execute(
+                "INSERT INTO wishes (user_id, wish_text) VALUES (?, ?)",
+                (current_user.id, wish_text)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.execute(
+                "UPDATE wishes SET wish_text = ? WHERE user_id = ?",
+                (wish_text, current_user.id)
+            )
+            conn.commit()
+        conn.close()
+        return jsonify({"message": "Wish saved"})
+
+    # GET: return my wish
+    row = conn.execute(
+        "SELECT wish_text FROM wishes WHERE user_id = ?", (current_user.id,)
+    ).fetchone()
+    conn.close()
+    return jsonify({"wish": row["wish_text"] if row else ""})
+
+
+@app.route("/api/me/recipient-wish", methods=["GET"])
+@login_required
+def api_my_recipient_wish():
+    """Get the wish of the person I drew."""
+    conn = get_db()
+    # Find who I drew
+    receiver_id = conn.execute(
+        "SELECT receiver_id FROM assignments WHERE giver_id = ? AND group_id = ?",
+        (current_user.id, current_user.group_id)
+    ).fetchone()
+    if not receiver_id:
+        conn.close()
+        return jsonify({"wish": None, "name": None})
+    receiver_id = receiver_id["receiver_id"]
+    # Get their wish
+    wish_row = conn.execute(
+        "SELECT w.wish_text, u.display_name FROM wishes w JOIN users u ON w.user_id = u.id WHERE w.user_id = ?",
+        (receiver_id,)
+    ).fetchone()
+    conn.close()
+    if wish_row and wish_row["wish_text"]:
+        return jsonify({"wish": wish_row["wish_text"], "name": wish_row["display_name"]})
+    return jsonify({"wish": None, "name": None})
 
 
 # ── Seed: Admin ──────────────────────────────────────────────────────

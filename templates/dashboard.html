@@ -29,19 +29,26 @@
         <ul id="exclusion-list" class="exclusion-list"></ul>
     </div>
 
-    <!-- Change Password -->
+    <!-- Christmas Wishes -->
     <div class="card">
-        <h2>🔒 Change Password</h2>
-        <div id="password-form">
+        <h2>🎄 Christmas Wishes</h2>
+        <p class="card-hint">Share your wish list! The person you draw will see what you want.</p>
+        <div id="wish-form">
             <div class="form-group">
-                <input type="password" id="oldPassword" placeholder="Current password">
+                <textarea id="wishText" placeholder="What are you wishing for this Christmas? (max 500 characters)" rows="4" maxlength="500"></textarea>
+                <small style="color:var(--text-muted);" id="wishCount">0 / 500</small>
             </div>
-            <div class="form-group">
-                <input type="password" id="newPassword" placeholder="New password (min 4 characters)">
-            </div>
-            <button class="btn btn-secondary btn-block" id="changePasswordBtn">Update Password</button>
-            <div id="password-result" style="margin-top:0.5rem;"></div>
+            <button class="btn btn-secondary btn-block" id="saveWishBtn">Save My Wish</button>
+            <div id="wish-result" style="margin-top:0.5rem;"></div>
         </div>
+        <div id="wish-display" style="margin-top:1rem;"></div>
+    </div>
+
+    <!-- Recipient Wish -->
+    <div class="card" id="recipient-wish-card" style="display:none;">
+        <h2>🎁 Recipient's Wish</h2>
+        <p class="card-hint">What the person you drew is wishing for:</p>
+        <div id="recipient-wish-content">Loading...</div>
     </div>
 </div>
 {% endblock %}
@@ -139,35 +146,69 @@ document.getElementById('exclusion-select').addEventListener('change', function(
     document.getElementById('add-exclusion-btn').disabled = !this.value;
 });
 
-document.getElementById('changePasswordBtn').addEventListener('click', async () => {
-    const oldPw = document.getElementById('oldPassword').value;
-    const newPw = document.getElementById('newPassword').value;
-    const result = document.getElementById('password-result');
-    if (!oldPw || !newPw) {
-        result.innerHTML = '<div class="alert alert-error">Both fields required.</div>';
-        return;
-    }
-    if (newPw.length < 4) {
-        result.innerHTML = '<div class="alert alert-error">New password must be at least 4 characters.</div>';
-        return;
-    }
+// Password change moved to Settings (⚙️) in top bar
 
-    const res = await fetch(`${API}/me/password`, {
+// Wish counter
+const wishText = document.getElementById('wishText');
+wishText.addEventListener('input', () => {
+    document.getElementById('wishCount').textContent = wishText.value.length + ' / 500';
+});
+
+document.getElementById('saveWishBtn').addEventListener('click', async () => {
+    const text = wishText.value.trim();
+    if (!text) {
+        document.getElementById('wish-result').innerHTML = '<div class="alert alert-error">Wish cannot be empty.</div>';
+        return;
+    }
+    const result = document.getElementById('wish-result');
+    const btn = document.getElementById('saveWishBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const res = await fetch(`${API}/me/wish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+        body: JSON.stringify({ wish_text: text })
     });
     const data = await res.json();
     if (res.ok) {
-        result.innerHTML = '<div class="alert alert-success">✅ Password updated!</div>';
-        document.getElementById('oldPassword').value = '';
-        document.getElementById('newPassword').value = '';
+        result.innerHTML = '<div class="alert alert-success">✅ Wish saved!</div>';
+        loadRecipientWish();
     } else {
-        result.innerHTML = `<div class="alert alert-error">${esc(data.error || 'Failed')}</div>`;
+        result.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
     }
+    btn.disabled = false;
+    btn.textContent = 'Save My Wish';
 });
+
+async function loadWish() {
+    const res = await fetch(`${API}/me/wish`);
+    const data = await res.json();
+    if (data.wish) {
+        wishText.value = data.wish;
+        document.getElementById('wishCount').textContent = data.wish.length + ' / 500';
+    }
+}
+
+async function loadRecipientWish() {
+    const card = document.getElementById("recipient-wish-card");
+    const contentDiv = document.getElementById("recipient-wish-content");
+    if (!card) return;
+    const res = await fetch(`${API}/me/recipient-wish`);
+    const data = await res.json();
+    if (data.name) {
+        card.style.display = "block";
+        contentDiv.innerHTML = `
+            <p style="color:var(--text-muted);font-size:0.9rem;">${data.name} wishes for:</p>
+            <div class="wish-display">${esc(data.wish)}</div>`;
+    } else {
+        card.style.display = "none";
+    }
+}
 
 loadAssignment();
 loadExclusions();
+loadWish();
+loadRecipientWish();
 </script>
 {% endblock %}

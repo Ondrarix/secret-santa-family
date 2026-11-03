@@ -163,6 +163,24 @@ select option {
     color: var(--text);
 }
 
+textarea {
+    width: 100%;
+    padding: 0.7rem 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text);
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+    resize: vertical;
+}
+
+textarea:focus {
+    border-color: var(--primary);
+}
+
 /* ── Buttons ───────────────────────────────────────────────────────── */
 button {
     padding: 0.7rem 1.2rem;
@@ -394,6 +412,41 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     z-index: 10;
     pointer-events: none;
     animation: confettiFall ease-out forwards;
+}
+
+.wish-display {
+    background: rgba(52,152,219,0.08);
+    border: 1px solid rgba(52,152,219,0.25);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-top: 0.75rem;
+    font-size: 1rem;
+    color: var(--text);
+    line-height: 1.5;
+}
+
+.wish-display::before {
+    content: '🎁 ';
+}
+
+/* ── Modal ────────────────────────────────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+.modal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    max-width: 420px;
+    width: 90%;
 }
 
 /* ── Responsive ────────────────────────────────────────────────────── */
