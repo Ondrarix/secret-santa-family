@@ -521,20 +521,43 @@ def api_admin_group_exclusions(group_id):
     if not current_user.is_admin:
         return jsonify({"error": "forbidden"}), 403
     conn = get_db()
-    exclusions = conn.execute("""
-        SELECT e.id, u1.display_name as user_name, u2.display_name as excluded_name
+    rows = conn.execute("""
+        SELECT e.id, u1.id as user_id, u1.display_name as user_name,
+               u2.id as excluded_id, u2.display_name as excluded_name
         FROM exclusions e
         JOIN users u1 ON e.user_id = u1.id
         JOIN users u2 ON e.excluded_user_id = u2.id
         WHERE u1.group_id = ?
         ORDER BY u1.display_name, u2.display_name
     """, (group_id,)).fetchall()
+
+    # Group bidirectional exclusions: if A→B and B→A both exist, show as mutual
+    seen_pairs = set()
+    result = []
+    for r in rows:
+        pair_key = tuple(sorted([r["user_id"], r["excluded_id"]]))
+        if pair_key in seen_pairs:
+            continue
+        seen_pairs.add(pair_key)
+
+        # Check if the reverse direction also exists
+        rev = conn.execute(
+            "SELECT id FROM exclusions WHERE user_id = ? AND excluded_user_id = ?",
+            (r["excluded_id"], r["user_id"])
+        ).fetchone()
+        is_mutual = rev is not None
+
+        result.append({
+            "user_id": r["user_id"],
+            "excluded_id": r["excluded_id"],
+            "user": r["user_name"],
+            "excluded": r["excluded_name"],
+            "mutual": is_mutual,
+            "id": r["id"],
+            "reverse_id": rev["id"] if rev else None
+        })
     conn.close()
-    return jsonify([{
-        "id": e["id"],
-        "user": e["user_name"],
-        "excluded": e["excluded_name"]
-    } for e in exclusions])
+    return jsonify(result)
 
 
 @app.route("/api/admin/groups/<int:group_id>/exclusions", methods=["POST"])

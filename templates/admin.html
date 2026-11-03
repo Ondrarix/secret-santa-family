@@ -175,6 +175,36 @@
 .cred-username { color: var(--text); }
 .cred-password { color: var(--admin); font-family: monospace; }
 .cred-info { flex: 1; }
+
+.exclusion-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+.exclusion-item:last-child { border-bottom: none; }
+.btn-remove {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #e74c3c;
+    cursor: pointer;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+}
+.btn-remove:hover { background: rgba(231,76,60,0.15); }
+.badge-mutual {
+    background: rgba(241, 196, 15, 0.15);
+    color: #f1c40f;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    margin-left: 0.5rem;
+    font-weight: 600;
+}
 </style>
 {% endblock %}
 {% block scripts %}
@@ -418,14 +448,16 @@ function renderExclusionList() {
         return;
     }
     list.innerHTML = allExclusions.map(e => `
-        <li class="exclusion-item">
-            <span>${esc(e.user)} 🚫 excludes 🚫 ${esc(e.excluded)}</span>
+        <li class="exclusion-item" ${e.mutual ? 'title="Mutual exclusion — both directions blocked"' : ''}>
+            <span>${esc(e.user)} 🚫 ${e.mutual ? '🤝 mutual 🤝' : 'excludes'} 🚫 ${esc(e.excluded)}</span>
+            ${e.mutual ? '<span class="badge-mutual">mutual</span>' : ''}
             <button class="btn-remove" data-id="${e.id}">✕</button>
         </li>
     `).join('');
     list.querySelectorAll('.btn-remove').forEach(btn => {
         btn.addEventListener('click', async () => {
-            const res = await fetch(`${API}/admin/exclusions/${btn.dataset.id}`, { method: 'DELETE' });
+            const id = btn.dataset.id;
+            const res = await fetch(`${API}/admin/exclusions/${id}`, { method: 'DELETE' });
             if (res.ok) loadGroupDetail();
         });
     });
