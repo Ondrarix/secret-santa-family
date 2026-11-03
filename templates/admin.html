@@ -31,8 +31,9 @@
         <!-- Draw Section -->
         <div class="card">
             <h2>🎁 Draw Assignments</h2>
-            <p class="card-hint">Generates new assignments respecting all exclusions for this group. Clears previous draws.</p>
+            <p class="card-hint">Generates new assignments respecting all exclusions for this group. Clears previous draws. Results are hidden — click Reveal to view.</p>
             <button class="btn btn-draw" id="drawBtn">🎲 Draw Now!</button>
+            <button class="btn btn-secondary" id="revealBtn" style="margin-left:0.5rem;display:none;">👁 Reveal Results</button>
             <button class="btn btn-reset" id="resetBtn" style="margin-top:0.5rem;">Reset Assignments (keep users)</button>
             <div id="draw-result" style="margin-top:1rem;"></div>
         </div>
@@ -328,6 +329,10 @@ async function selectGroup(id) {
 
 async function loadGroupDetail() {
     if (!selectedGroupId) return;
+    currentAssignments = [];
+    document.getElementById('revealBtn').style.display = 'none';
+    document.getElementById('draw-result').innerHTML = '<p class="empty-hint">No assignments yet. Run a draw to generate.</p>';
+
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}/users`);
     allUsers = await res.json();
     renderUserTable();
@@ -348,6 +353,10 @@ async function loadGroupDetail() {
 
     if (selectedGroupInfo) {
         document.getElementById('selectedGroupTitle').textContent = `${selectedGroupInfo.name} (${selectedGroupInfo.year})`;
+        // Check if there are existing assignments
+        if (selectedGroupInfo.draw_count > 0) {
+            document.getElementById('revealBtn').style.display = 'inline-block';
+        }
     }
 }
 
@@ -487,6 +496,9 @@ document.getElementById('addExclusionBtn').addEventListener('click', async () =>
     }
 });
 
+// Store current draw results for reveal
+let currentAssignments = [];
+
 document.getElementById('drawBtn').addEventListener('click', async () => {
     if (!confirm('Draw assignments for this group? This will clear any previous draw.')) return;
     const btn = document.getElementById('drawBtn');
@@ -498,16 +510,9 @@ document.getElementById('drawBtn').addEventListener('click', async () => {
         const data = await res.json();
         const container = document.getElementById('draw-result');
         if (res.ok) {
-            container.innerHTML = `
-                <div class="draw-success">
-                    <p>${esc(data.message)}</p>
-                    <table class="assignment-table">
-                        <thead><tr><th>Giver</th><th>→ Receiver</th></tr></thead>
-                        <tbody>
-                            ${data.assignments.map(a => `<tr><td>${esc(a.giver)}</td><td>→ ${esc(a.receiver)}</td></tr>`).join('')}
-                        </tbody>
-                    </table>
-                </div>`;
+            currentAssignments = data.assignments;
+            container.innerHTML = `<div class="alert alert-success">${esc(data.message)} — Results hidden for secrecy.</div>`;
+            document.getElementById('revealBtn').style.display = 'inline-block';
             confettiBurst();
         } else {
             container.innerHTML = `<div class="alert alert-error">${esc(data.error)}</div>`;
@@ -519,8 +524,42 @@ document.getElementById('drawBtn').addEventListener('click', async () => {
     btn.textContent = '🎲 Draw Now!';
 });
 
+document.getElementById('revealBtn').addEventListener('click', async () => {
+    const container = document.getElementById('draw-result');
+    let assignments = currentAssignments;
+    // If assignments are empty (page reload), fetch from server
+    if (assignments.length === 0) {
+        try {
+            const res = await fetch(`${API}/admin/groups/${selectedGroupId}/assignments`);
+            const data = await res.json();
+            if (data.assignments && data.assignments.length > 0) {
+                assignments = data.assignments;
+                currentAssignments = assignments;
+            } else {
+                container.innerHTML = '<div class="alert alert-error">No assignments found.</div>';
+                return;
+            }
+        } catch (e) {
+            container.innerHTML = '<div class="alert alert-error">Network error.</div>';
+            return;
+        }
+    }
+    container.innerHTML = `
+        <div class="draw-success">
+            <p>🎅 Draw Results — keep these confidential!</p>
+            <table class="assignment-table">
+                <thead><tr><th>Giver</th><th>→ Receiver</th></tr></thead>
+                <tbody>
+                    ${assignments.map(a => `<tr><td>${esc(a.giver)}</td><td>→ ${esc(a.receiver)}</td></tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+});
+
 document.getElementById('resetBtn').addEventListener('click', async () => {
     if (!confirm('Clear all assignments? Users and exclusions will be kept.')) return;
+    currentAssignments = [];
+    document.getElementById('revealBtn').style.display = 'none';
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}/reset`, { method: 'POST' });
     const data = await res.json();
     if (res.ok) {

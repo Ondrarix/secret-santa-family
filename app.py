@@ -727,6 +727,27 @@ def api_admin_reset(group_id):
     return jsonify({"message": "Assignments cleared"})
 
 
+@app.route("/api/admin/groups/<int:group_id>/assignments", methods=["GET"])
+@login_required
+def api_admin_group_assignments(group_id):
+    """Get current assignments for a group (used by admin reveal)."""
+    if not current_user.is_admin:
+        return jsonify({"error": "forbidden"}), 403
+    conn = get_db()
+    assignments = conn.execute("""
+        SELECT u1.display_name as giver, u2.display_name as receiver
+        FROM assignments a
+        JOIN users u1 ON a.giver_id = u1.id
+        JOIN users u2 ON a.receiver_id = u2.id
+        WHERE a.group_id = ?
+        ORDER BY u1.display_name
+    """, (group_id,)).fetchall()
+    conn.close()
+    if not assignments:
+        return jsonify({"assignments": [], "message": "No assignments found."})
+    return jsonify({"assignments": [{"giver": a["giver"], "receiver": a["receiver"]} for a in assignments]})
+
+
 # ── User: Self Exclusions ────────────────────────────────────────────
 @app.route("/api/user/exclusions", methods=["GET"])
 @login_required
