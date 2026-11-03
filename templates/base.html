@@ -12,6 +12,9 @@
     <nav class="navbar">
         <a href="/" class="nav-brand">🎅 Secret Santa</a>
         <div class="nav-right">
+            {% if current_user.is_admin %}
+            <span class="nav-user-group">{{ group.name if group else 'Admin' }}</span>
+            {% endif %}
             <span class="nav-user">{{ current_user.name }}</span>
             {% if current_user.is_admin %}
             <a href="/admin" class="nav-link">Admin</a>

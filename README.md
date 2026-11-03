@@ -1,13 +1,17 @@
-# 🎅 Secret Santa — Hosted Family Edition
+# 🎅 Secret Santa — Family Edition
 
-A multi-user Secret Santa app with private assignments and partner exclusions.
+A multi-user Secret Santa app with **grouped draws**, private assignments, and per-group exclusions.
 
 ## Features
 
+- **Grouped draws** — create multiple Secret Santa groups (e.g. Office 2024, Family 2024)
 - **Private assignments** — each person only sees their own gift recipient
+- **Pre-registered users** — admin creates accounts; users log in with username + password (no self-registration)
 - **Partner exclusions** — family members can exclude themselves from drawing their partner
-- **Admin panel** — manage participants, exclusions, and trigger the draw
-- **Snowflake animation & confetti** — festive UI
+- **Admin panel** — manage groups, participants, exclusions, and trigger draws
+- **Auto-generated credentials** — admin can generate random usernames/passwords for users
+- **Secure draw** — cryptographic randomness (secrets.SystemRandom)
+- **Festive UI** — dark theme with confetti animations
 - **Runs locally** — no external services needed, everything stores in a local SQLite database
 
 ## Quick Start (Local Network)
@@ -21,12 +25,6 @@ During install, check **"Add Python to PATH"**.
 ### 2. Install Dependencies
 
 Open Command Prompt in the app folder and run:
-
-```
-pip install flask flask-login werkzeug python-dotenv
-```
-
-Or run the included script (if pip is available):
 
 ```
 pip install -r requirements.txt
@@ -63,27 +61,42 @@ http://192.168.1.42:5000
 ### 5. First Login
 
 Default admin account:
-- **Name:** `admin`
+- **Username:** `admin`
 - **Password:** `secret`
 
-⚠️ **Change the admin password after first login!** Create your own admin account via the API or SQL, then delete the default.
+⚠️ **Change the admin password after first login!**
+
+## Default Family Group (2024)
+
+On first run, the app creates:
+- **Group:** "Rodina 2024" (Family Secret Santa 2024)
+- **6 pre-registered users:** Maminka, Tatínek, Danuška, Káčí, Óňa, Nezuš
+
+Each user gets a random 10-character password. Share these credentials with your family members.
 
 ## How It Works
 
 ### Admin Panel (`/admin`)
-- Add participants (name + password for each person)
-- Set exclusions (e.g., "Alice doesn't want to draw Bob")
-- Click "Draw Now!" to generate all assignments
-- Reset assignments without deleting users
 
-### User Dashboard (`/`)
-- Log in with your name and password
-- See only your own assignment (click to reveal)
-- Set your own exclusions (partner you don't want to draw)
-- Admin can override individual exclusions from the admin panel
+1. **Create groups** — give each group a name and year (e.g. "Office 2024", "Rodina 2024")
+2. **Add participants** — add people to a specific group (auto-generate username + password, or set manually)
+3. **View credentials** — click "View" next to a user to see their login username
+4. **Regenerate passwords** — click "Regenerate All Passwords" to give everyone new passwords
+5. **Set exclusions** — pick two people in the same group to exclude each other
+6. **Draw assignments** — click "Draw Now!" to generate a draw for the selected group
+7. **Reset** — clear assignments without deleting users
+
+### User Dashboard
+
+1. **Log in** with username and password
+2. **See only your own assignment** — you never see who others drew
+3. **Set your own exclusions** — people in your group you don't want to draw
+4. **Change password** — update your password anytime
 
 ### Draw Algorithm
-- Fisher-Yates shuffle with derangement (no self-assignments)
+
+- Fisher-Yates shuffle with CSPRNG (`secrets.SystemRandom`)
+- No self-assignments (derangement)
 - Respects all exclusion constraints
 - Up to 10,000 attempts per draw before failing
 - Admin can retry if the algorithm can't find a valid assignment
@@ -98,17 +111,15 @@ secret-santa-hosted/
 ├── README.md              # This file
 ├── templates/
 │   ├── base.html          # Base layout
-│   ├── login.html         # Login page
+│   ├── login.html         # Login page (username + password)
 │   ├── dashboard.html     # User dashboard
-│   └── admin.html         # Admin panel
+│   └── admin.html         # Admin panel (groups, users, draws)
 ├── static/
 │   └── style.css          # All styling
 └── secret_santa.db        # SQLite database (auto-created)
 ```
 
 ## Cloud Deployment (Optional)
-
-If you want remote access (outside your home network), deploy to a free service:
 
 ### Option A: Render (Recommended)
 1. Push the code to a GitHub repo
@@ -125,16 +136,11 @@ If you want remote access (outside your home network), deploy to a free service:
 3. Set build/start commands same as Render
 4. Free tier gives you a live URL
 
-### Option C: PythonAnywhere
-1. Go to https://www.pythonanywhere.com
-2. Free tier → Web tab → Flask
-3. Upload the files
-4. Set WSGI config to point to `app.py`
-
 ## Security Notes
 
 - Passwords are hashed with Werkzeug's security module
 - Flask-Login handles session management
+- Draw uses cryptographic randomness (`secrets.SystemRandom`)
 - For production hosting, use HTTPS (both Render and Railway provide it automatically)
 - The SQLite database file contains all data — back it up if needed
 - Keep the `SECRET_KEY` as a random string in production

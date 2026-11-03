@@ -2,6 +2,9 @@
 {% block content %}
 <div class="dashboard">
     <h1>Welcome, {{ current_user.name }}! 🎄</h1>
+    {% if group %}
+    <p class="group-label" style="color:var(--text-muted);margin-bottom:1.5rem;">{{ group.name }} ({{ group.year }})</p>
+    {% endif %}
 
     <!-- My Assignment -->
     <div class="card">
@@ -69,14 +72,12 @@ async function loadExclusions() {
     const res = await fetch(`${API}/user/exclusions`);
     const data = await res.json();
 
-    // Populate select
     const select = document.getElementById('exclusion-select');
     const others = data.others || [];
     select.innerHTML = '<option value="">Select someone to exclude...</option>' +
         others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
     select.disabled = false;
 
-    // Render list
     renderExclusionList(data.excluded || []);
 }
 
@@ -111,7 +112,6 @@ function esc(s) {
     return d.innerHTML;
 }
 
-// Add exclusion
 document.getElementById('add-exclusion-btn').addEventListener('click', async () => {
     const select = document.getElementById('exclusion-select');
     const userId = parseInt(select.value);
@@ -139,7 +139,6 @@ document.getElementById('exclusion-select').addEventListener('change', function(
     document.getElementById('add-exclusion-btn').disabled = !this.value;
 });
 
-// ── Change Password ────────────────────────────────────────────────
 document.getElementById('changePasswordBtn').addEventListener('click', async () => {
     const oldPw = document.getElementById('oldPassword').value;
     const newPw = document.getElementById('newPassword').value;
@@ -168,7 +167,6 @@ document.getElementById('changePasswordBtn').addEventListener('click', async () 
     }
 });
 
-// Init
 loadAssignment();
 loadExclusions();
 </script>
