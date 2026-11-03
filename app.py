@@ -564,6 +564,10 @@ def api_admin_add_exclusion(group_id):
             "INSERT INTO exclusions (user_id, excluded_user_id) VALUES (?, ?)",
             (user_id, excluded_user_id)
         )
+        conn.execute(
+            "INSERT INTO exclusions (user_id, excluded_user_id) VALUES (?, ?)",
+            (excluded_user_id, user_id)
+        )
         conn.commit()
         e_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     except sqlite3.IntegrityError:
@@ -579,8 +583,12 @@ def api_admin_delete_exclusion(exclusion_id):
     if not current_user.is_admin:
         return jsonify({"error": "forbidden"}), 403
     conn = get_db()
-    conn.execute("DELETE FROM exclusions WHERE id = ?", (exclusion_id,))
-    conn.commit()
+    # Get the direction of this exclusion to also delete the reverse
+    row = conn.execute("SELECT user_id, excluded_user_id FROM exclusions WHERE id = ?", (exclusion_id,)).fetchone()
+    if row:
+        conn.execute("DELETE FROM exclusions WHERE id = ?", (exclusion_id,))
+        conn.execute("DELETE FROM exclusions WHERE user_id = ? AND excluded_user_id = ?", (row["excluded_user_id"], row["user_id"]))
+        conn.commit()
     conn.close()
     return jsonify({"deleted": exclusion_id})
 
@@ -735,6 +743,10 @@ def api_user_add_exclusion():
         conn.execute(
             "INSERT INTO exclusions (user_id, excluded_user_id) VALUES (?, ?)",
             (current_user.id, excluded_user_id)
+        )
+        conn.execute(
+            "INSERT INTO exclusions (user_id, excluded_user_id) VALUES (?, ?)",
+            (excluded_user_id, current_user.id)
         )
         conn.commit()
         name = conn.execute(
