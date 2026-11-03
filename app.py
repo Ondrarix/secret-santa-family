@@ -258,6 +258,31 @@ def api_admin_create_group():
     return jsonify({"id": group_id, "name": name, "year": year})
 
 
+@app.route("/api/admin/groups/<int:group_id>", methods=["PUT"])
+@login_required
+def api_admin_edit_group(group_id):
+    if not current_user.is_admin:
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json()
+    name = data.get("name", "").strip()
+    year = data.get("year")
+    description = data.get("description", "").strip()
+    if not name:
+        return jsonify({"error": "group name required"}), 400
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE groups SET name = ?, year = ?, description = ? WHERE id = ?",
+            (name, year, description, group_id)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        return jsonify({"error": str(e)}), 409
+    conn.close()
+    return jsonify({"edited": group_id, "name": name, "year": year})
+
+
 @app.route("/api/admin/groups/<int:group_id>", methods=["DELETE"])
 @login_required
 def api_admin_delete_group(group_id):
@@ -389,6 +414,62 @@ def api_admin_delete_user(group_id, user_id):
     conn.commit()
     conn.close()
     return jsonify({"deleted": user_id, "name": user["display_name"]})
+
+
+@app.route("/api/admin/groups/<int:group_id>/users/<int:user_id>", methods=["PUT"])
+@login_required
+def api_admin_edit_user(group_id, user_id):
+    if not current_user.is_admin:
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json()
+    display_name = data.get("display_name", "").strip()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()  # optional; if provided, set new password
+
+    if not display_name:
+        return jsonify({"error": "display name required"}), 400
+
+    conn = get_db()
+    # Verify user belongs to this group
+    user = conn.execute(
+        "SELECT id, display_name, username, is_admin FROM users WHERE id = ? AND group_id = ?",
+        (user_id, group_id)
+    ).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"error": "user not found in this group"}), 404
+
+    # Check username uniqueness if changed
+    if username and username != user["username"]:
+        existing = conn.execute(
+            "SELECT id FROM users WHERE username = ? AND id != ?", (username, user_id)
+        ).fetchone()
+        if existing:
+            conn.close()
+            return jsonify({"error": f"Username '{username}' already taken"}), 409
+
+    # Build update
+    updates = []
+    params = []
+    if username:
+        updates.append("username = ?")
+        params.append(username)
+    if password:
+        updates.append("password_hash = ?")
+        params.append(generate_password_hash(password))
+    if display_name != user["display_name"]:
+        updates.append("display_name = ?")
+        params.append(display_name)
+
+    if updates:
+        params.append(user_id)
+        conn.execute(
+            f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params
+        )
+        conn.commit()
+
+    conn.close()
+    return jsonify({"edited": user_id, "display_name": display_name, "username": username or user["username"]})
 
 
 @app.route("/api/admin/users/<int:user_id>/credentials", methods=["GET"])

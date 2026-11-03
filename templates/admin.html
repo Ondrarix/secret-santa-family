@@ -21,6 +21,7 @@
             <div class="group-header">
                 <h2 id="selectedGroupTitle">Group</h2>
                 <div class="group-actions">
+                    <button class="btn btn-sm" id="editGroupBtn" onclick="editGroupFromList()">✏️ Edit Group</button>
                     <button class="btn btn-sm btn-secondary" id="generateCredsBtn">🔑 Regenerate All Passwords</button>
                     <button class="btn btn-sm btn-danger" id="deleteGroupBtn">Delete Group</button>
                 </div>
@@ -41,10 +42,8 @@
             <h2>👥 Participants <span class="counter" id="userCount"></span></h2>
             <div class="input-row" style="margin-bottom:1rem;">
                 <input type="text" id="newDisplayName" placeholder="Display name" autocomplete="off">
-                <input type="password" id="newPassword" placeholder="Password (leave blank = auto-generate)" style="max-width:160px;">
-                <label class="auto-creds-label">
-                    <input type="checkbox" id="autoCredsCheck"> Auto-creds
-                </label>
+                <input type="text" id="newUsername" placeholder="Username (optional)" style="max-width:160px;">
+                <input type="password" id="newPassword" placeholder="Password (leave blank = auto-generate)" style="max-width:120px;">
                 <button class="btn btn-sm btn-secondary" id="addUserBtn">Add User</button>
             </div>
             <table class="user-table">
@@ -75,12 +74,41 @@
     </div>
 </div>
 
-<!-- Credentials Modal -->
-<div id="credsModal" class="modal-overlay" style="display:none;">
+<!-- Edit Group Modal -->
+<div id="editGroupModal" class="modal-overlay" style="display:none;">
     <div class="modal">
-        <h3>🔑 User Credentials</h3>
-        <div id="credsContent"></div>
-        <button class="btn btn-secondary btn-block" onclick="closeModal()" style="margin-top:1rem;">Close</button>
+        <h3>✏️ Edit Group</h3>
+        <div class="form-group">
+            <label>Group Name</label>
+            <input type="text" id="editGroupName">
+        </div>
+        <div class="form-group">
+            <label>Year</label>
+            <input type="number" id="editGroupYear">
+        </div>
+        <button class="btn btn-primary btn-block" id="saveGroupBtn">Save</button>
+        <button class="btn btn-secondary btn-block" onclick="closeEditGroup()" style="margin-top:0.5rem;">Cancel</button>
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div id="editUserModal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+        <h3>✏️ Edit User</h3>
+        <div class="form-group">
+            <label>Display Name</label>
+            <input type="text" id="editUserDisplayName">
+        </div>
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="editUserUsername">
+        </div>
+        <div class="form-group">
+            <label>New Password (leave blank to keep current)</label>
+            <input type="password" id="editUserPassword" placeholder="Optional — set new password">
+        </div>
+        <button class="btn btn-primary btn-block" id="saveUserBtn">Save</button>
+        <button class="btn btn-secondary btn-block" onclick="closeEditUser()" style="margin-top:0.5rem;">Cancel</button>
     </div>
 </div>
 
@@ -96,14 +124,7 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
-}
-.auto-creds-label {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    white-space: nowrap;
+    flex-wrap: wrap;
 }
 .group-item {
     display: flex;
@@ -153,15 +174,6 @@
 .cred-name { font-weight: 600; color: var(--primary); }
 .cred-username { color: var(--text); }
 .cred-password { color: var(--admin); font-family: monospace; }
-.copy-btn {
-    background: none;
-    border: none;
-    color: var(--info);
-    cursor: pointer;
-    font-size: 0.85rem;
-    padding: 0 0.25rem;
-}
-.cred-row { display: flex; align-items: center; gap: 1rem; }
 .cred-info { flex: 1; }
 </style>
 {% endblock %}
@@ -169,10 +181,10 @@
 <script>
 const API = '/api';
 let selectedGroupId = null;
+let selectedGroupInfo = null;
 let allUsers = [];
 let allExclusions = [];
 
-// ── Helpers ──────────────────────────────────────────────────────────
 function esc(s) {
     if (typeof s === 'undefined' || s === null) return '';
     const d = document.createElement('div');
@@ -180,15 +192,6 @@ function esc(s) {
     return d.innerHTML;
 }
 
-function showModal(html) {
-    document.getElementById('credsContent').innerHTML = html;
-    document.getElementById('credsModal').style.display = 'flex';
-}
-function closeModal() {
-    document.getElementById('credsModal').style.display = 'none';
-}
-
-// ── Groups ───────────────────────────────────────────────────────────
 async function loadGroups() {
     const res = await fetch(`${API}/admin/groups`);
     const groups = await res.json();
@@ -204,12 +207,11 @@ async function loadGroups() {
                 <div class="group-item-meta">${g.user_count} users · ${g.draw_count} draw${g.draw_count !== 1 ? 's' : ''}</div>
             </div>
             <div class="group-item-actions">
+                <button class="btn btn-sm" onclick="event.stopPropagation(); editGroup(${g.id}, '${esc(g.name)}', ${g.year})">✏️ Edit</button>
                 <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteGroup(${g.id})">Delete</button>
             </div>
         </div>
     `).join('');
-
-    // Click to select
     container.querySelectorAll('.group-item').forEach(el => {
         el.addEventListener('click', () => selectGroup(parseInt(el.dataset.id)));
     });
@@ -234,41 +236,78 @@ async function addGroup() {
     }
 }
 
+async function editGroup(id, name, year) {
+    document.getElementById('editGroupName').value = name;
+    document.getElementById('editGroupYear').value = year;
+    document.getElementById('editGroupModal').style.display = 'flex';
+    window._editGroupId = id;
+}
+
+function closeEditGroup() {
+    document.getElementById('editGroupModal').style.display = 'none';
+    window._editGroupId = null;
+}
+
+async function saveGroup() {
+    const id = window._editGroupId;
+    const name = document.getElementById('editGroupName').value.trim();
+    const year = parseInt(document.getElementById('editGroupYear').value) || 2024;
+    if (!name) { alert('Group name required'); return; }
+    const res = await fetch(`${API}/admin/groups/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, year })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        closeEditGroup();
+        selectGroup(id);
+        loadGroups();
+    } else {
+        alert(data.error || 'Failed');
+    }
+}
+
+function editGroupFromList() {
+    if (!selectedGroupInfo) return;
+    editGroup(selectedGroupInfo.id, selectedGroupInfo.name, selectedGroupInfo.year);
+}
+
 async function deleteGroup(id) {
     if (!confirm('Delete this group? All data will be lost.')) return;
     const res = await fetch(`${API}/admin/groups/${id}`, { method: 'DELETE' });
     if (res.ok) {
         selectedGroupId = null;
+        selectedGroupInfo = null;
         document.getElementById('groupDetail').style.display = 'none';
         loadGroups();
     } else {
-        alert(res.json().then(d => d.error) || 'Failed');
+        const data = await res.json();
+        alert(data.error || 'Failed');
     }
 }
 
 async function selectGroup(id) {
     selectedGroupId = id;
+    const groups = await (await fetch(`${API}/admin/groups`)).json();
+    selectedGroupInfo = groups.find(g => g.id === id);
     document.getElementById('groupDetail').style.display = 'block';
-    loadGroups(); // refresh to update selected state
+    loadGroups();
     loadGroupDetail();
 }
 
-// ── Group Detail ─────────────────────────────────────────────────────
 async function loadGroupDetail() {
     if (!selectedGroupId) return;
-    // Load users
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}/users`);
     allUsers = await res.json();
     renderUserTable();
     document.getElementById('userCount').textContent = `(${allUsers.length})`;
 
-    // Load exclusions
     const exclRes = await fetch(`${API}/admin/groups/${selectedGroupId}/exclusions`);
     allExclusions = await exclRes.json();
     renderExclusionList();
     document.getElementById('exclusionCount').textContent = `(${allExclusions.length})`;
 
-    // Populate exclusion selects
     const opts = allUsers.map(u => `<option value="${u.id}">${esc(u.display_name)}</option>`).join('');
     const s1 = document.getElementById('excludeSelect1');
     const s2 = document.getElementById('excludeSelect2');
@@ -277,15 +316,11 @@ async function loadGroupDetail() {
     s1.addEventListener('change', checkExclusionSelects);
     s2.addEventListener('change', checkExclusionSelects);
 
-    // Update group title
-    const totalUsers = await (await fetch(`${API}/admin/groups`)).json();
-    const group = totalUsers.find(g => g.id === selectedGroupId);
-    if (group) {
-        document.getElementById('selectedGroupTitle').textContent = `${group.name} (${group.year})`;
+    if (selectedGroupInfo) {
+        document.getElementById('selectedGroupTitle').textContent = `${selectedGroupInfo.name} (${selectedGroupInfo.year})`;
     }
 }
 
-// ── Users ────────────────────────────────────────────────────────────
 function renderUserTable() {
     const tbody = document.getElementById('userTableBody');
     tbody.innerHTML = allUsers.map(u => `
@@ -295,7 +330,7 @@ function renderUserTable() {
             <td>${u.is_admin ? '<span class="badge-admin">Admin</span>' : 'Member'}</td>
             <td>${u.exclusions}</td>
             <td>
-                <button class="btn btn-sm" onclick="showCredentials(${u.id}, '${esc(u.display_name)}', '${esc(u.username)}')">View</button>
+                <button class="btn btn-sm" onclick="editUser(${u.id}, '${esc(u.display_name)}', '${esc(u.username)}')">✏️ Edit</button>
                 ${!u.is_admin ? `<button class="btn btn-sm btn-danger btn-delete-user" data-id="${u.id}">Remove</button>` : ''}
             </td>
         </tr>
@@ -315,51 +350,66 @@ function renderUserTable() {
     });
 }
 
-function showCredentials(id, name, username) {
-    showModal(`
-        <div class="cred-row">
-            <div class="cred-info">
-                <div class="cred-name">${esc(name)}</div>
-                <div class="cred-username">Username: ${esc(username)}</div>
-            </div>
-        </div>
-        <p style="color:var(--text-muted);font-size:0.85rem;margin-top:1rem;">Passwords are hashed and can't be viewed. Use "Regenerate All Passwords" to create new ones for all users.</p>
-    `);
+function editUser(id, name, username) {
+    document.getElementById('editUserDisplayName').value = name;
+    document.getElementById('editUserUsername').value = username;
+    document.getElementById('editUserPassword').value = '';
+    document.getElementById('editUserModal').style.display = 'flex';
+    window._editUserId = id;
+}
+
+function closeEditUser() {
+    document.getElementById('editUserModal').style.display = 'none';
+    window._editUserId = null;
+}
+
+async function saveUser() {
+    const id = window._editUserId;
+    const displayName = document.getElementById('editUserDisplayName').value.trim();
+    const username = document.getElementById('editUserUsername').value.trim();
+    const password = document.getElementById('editUserPassword').value.trim();
+    if (!displayName) { alert('Display name required'); return; }
+
+    const res = await fetch(`${API}/admin/groups/${selectedGroupId}/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: displayName, username, password })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        closeEditUser();
+        loadGroupDetail();
+        if (password) {
+            alert('✅ User updated. New password set — make sure to share it with the user.');
+        }
+    } else {
+        alert(data.error || 'Failed');
+    }
 }
 
 document.getElementById('addUserBtn').addEventListener('click', async () => {
     const displayName = document.getElementById('newDisplayName').value.trim();
+    const username = document.getElementById('newUsername').value.trim();
     const password = document.getElementById('newPassword').value.trim();
-    const autoCreds = document.getElementById('autoCredsCheck').checked;
     if (!displayName) { alert('Display name required'); return; }
 
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ display_name: displayName, password, auto_credentials: autoCreds })
+        body: JSON.stringify({ display_name: displayName, username, password })
     });
     const data = await res.json();
     if (res.ok) {
         document.getElementById('newDisplayName').value = '';
+        document.getElementById('newUsername').value = '';
         document.getElementById('newPassword').value = '';
         loadGroupDetail();
-        if (data.password && data.password !== '******') {
-            setTimeout(() => showCredentials(data.id, data.display_name, data.username), 300);
-        }
     } else {
         alert(data.error || 'Failed');
     }
 });
 
 document.getElementById('newDisplayName').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('addUserBtn').click(); });
-
-// ── Exclusions ───────────────────────────────────────────────────────
-async function loadExclusions() {
-    const res = await fetch(`${API}/admin/groups/${selectedGroupId}/exclusions`);
-    allExclusions = await res.json();
-    renderExclusionList();
-    document.getElementById('exclusionCount').textContent = `(${allExclusions.length})`;
-}
 
 function renderExclusionList() {
     const list = document.getElementById('exclusionList');
@@ -373,7 +423,6 @@ function renderExclusionList() {
             <button class="btn-remove" data-id="${e.id}">✕</button>
         </li>
     `).join('');
-
     list.querySelectorAll('.btn-remove').forEach(btn => {
         btn.addEventListener('click', async () => {
             const res = await fetch(`${API}/admin/exclusions/${btn.dataset.id}`, { method: 'DELETE' });
@@ -406,14 +455,12 @@ document.getElementById('addExclusionBtn').addEventListener('click', async () =>
     }
 });
 
-// ── Draw ─────────────────────────────────────────────────────────────
 document.getElementById('drawBtn').addEventListener('click', async () => {
     if (!confirm('Draw assignments for this group? This will clear any previous draw.')) return;
     const btn = document.getElementById('drawBtn');
     btn.disabled = true;
     btn.textContent = 'Drawing...';
     document.getElementById('draw-result').innerHTML = '<div class="loading">Generating assignments...</div>';
-
     try {
         const res = await fetch(`${API}/admin/groups/${selectedGroupId}/draw`, { method: 'POST' });
         const data = await res.json();
@@ -440,7 +487,6 @@ document.getElementById('drawBtn').addEventListener('click', async () => {
     btn.textContent = '🎲 Draw Now!';
 });
 
-// ── Reset ────────────────────────────────────────────────────────────
 document.getElementById('resetBtn').addEventListener('click', async () => {
     if (!confirm('Clear all assignments? Users and exclusions will be kept.')) return;
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}/reset`, { method: 'POST' });
@@ -450,46 +496,51 @@ document.getElementById('resetBtn').addEventListener('click', async () => {
     }
 });
 
-// ── Generate Credentials ─────────────────────────────────────────────
 document.getElementById('generateCredsBtn').addEventListener('click', async () => {
-    if (!confirm('Regenerate passwords for ALL users in this group? They will receive new passwords.')) return;
+    if (!confirm('Regenerate passwords for ALL users in this group?')) return;
     document.getElementById('generateCredsBtn').disabled = true;
     document.getElementById('generateCredsBtn').textContent = 'Generating...';
-
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}/generate-credentials`, { method: 'POST' });
     const data = await res.json();
     document.getElementById('generateCredsBtn').disabled = false;
     document.getElementById('generateCredsBtn').textContent = '🔑 Regenerate All Passwords';
-
     if (res.ok) {
         let html = '<p style="color:var(--primary);margin-bottom:1rem;">✅ New passwords generated for all users:</p>';
         data.credentials.forEach(c => {
-            html += `
-                <div class="cred-row">
-                    <div class="cred-info">
-                        <div class="cred-name">${esc(c.display_name)}</div>
-                        <div class="cred-username">Username: ${esc(c.username)}</div>
-                    </div>
-                    <div class="cred-password">${esc(c.password)}</div>
-                </div>`;
+            html += `<div class="cred-row"><div class="cred-info"><div class="cred-name">${esc(c.display_name)}</div><div class="cred-username">Username: ${esc(c.username)}</div></div><div class="cred-password">${esc(c.password)}</div></div>`;
         });
         html += '<p style="color:var(--text-muted);font-size:0.85rem;margin-top:1rem;">📋 Share these passwords securely with each user.</p>';
-        showModal(html);
+        showModalBulk(html);
     } else {
         alert(data.error || 'Failed');
     }
 });
 
-// ── Add Group ────────────────────────────────────────────────────────
+function showModalBulk(html) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.display = 'flex';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `<h3>🔑 All User Passwords</h3>${html}<button class="btn btn-secondary btn-block" onclick="this.closest('.modal-overlay').remove()" style="margin-top:1rem;">Close</button>`;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+}
+
 document.getElementById('addGroupBtn').addEventListener('click', addGroup);
 document.getElementById('groupYear').addEventListener('keydown', e => { if (e.key === 'Enter') addGroup(); });
+document.getElementById('saveGroupBtn').addEventListener('click', saveGroup);
+document.getElementById('editGroupModal').addEventListener('click', function(e) { if (e.target === this) closeEditGroup(); });
+document.getElementById('saveUserBtn').addEventListener('click', saveUser);
+document.getElementById('editUserModal').addEventListener('click', function(e) { if (e.target === this) closeEditUser(); });
 
-// ── Delete Group ─────────────────────────────────────────────────────
 document.getElementById('deleteGroupBtn').addEventListener('click', async () => {
     if (!confirm('Delete this group? This cannot be undone.')) return;
     const res = await fetch(`${API}/admin/groups/${selectedGroupId}`, { method: 'DELETE' });
     if (res.ok) {
         selectedGroupId = null;
+        selectedGroupInfo = null;
         document.getElementById('groupDetail').style.display = 'none';
         loadGroups();
     } else {
@@ -498,7 +549,6 @@ document.getElementById('deleteGroupBtn').addEventListener('click', async () => 
     }
 });
 
-// ── Confetti ─────────────────────────────────────────────────────────
 function confettiBurst() {
     const colors = ['#e74c3c','#2ecc71','#3498db','#f1c40f','#9b59b6'];
     for (let i = 0; i < 60; i++) {
@@ -520,7 +570,6 @@ function confettiBurst() {
     }
 }
 
-// ── Init ─────────────────────────────────────────────────────────────
 loadGroups();
 </script>
 {% endblock %}
