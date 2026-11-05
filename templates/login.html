@@ -2,25 +2,28 @@
 {% block content %}
 <div class="login-card">
     <div class="login-icon">🎅</div>
-    <h1>Secret Santa</h1>
-    <p class="login-subtitle">Enter your username and password to see your assignment.</p>
+    <h1 data-i18n="login.title">Secret Santa</h1>
+    <p class="login-subtitle" data-i18n="login.subtitle">Enter your username and password to see your assignment.</p>
     {% if error %}
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
     <form method="post" id="loginForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
-            <label for="username">Username</label>
-            <input type="text" id="username" name="username" placeholder="Your username" required autofocus autocomplete="username">
+            <label for="username" data-i18n="login.username">Username</label>
+            <input type="text" id="username" name="username" data-i18n-ph="login.username_ph" placeholder="Your username" required autofocus autocomplete="username">
         </div>
         <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" placeholder="Your password" required autocomplete="current-password">
+            <label for="password" data-i18n="login.password">Password</label>
+            <input type="password" id="password" name="password" data-i18n-ph="login.password_ph" placeholder="Your password" required autocomplete="current-password">
         </div>
-        <button type="submit" class="btn btn-primary btn-block">Login</button>
+        <button type="submit" class="btn btn-primary btn-block" data-i18n="login.button">Login</button>
     </form>
-    <p style="margin-top:1rem;font-size:0.8rem;color:var(--text-muted);">
+    <p style="margin-top:1rem;font-size:0.8rem;color:var(--text-muted);" data-i18n="login.hint">
         Ask the admin for your login credentials.
+    </p>
+    <p style="margin-top:0.75rem;">
+        <a href="#" id="lang-toggle" style="color:var(--text-muted);text-decoration:none;font-size:0.85rem;">🇬🇧 EN</a>
     </p>
 </div>
 {% endblock %}

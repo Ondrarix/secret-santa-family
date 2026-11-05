@@ -7,9 +7,11 @@
     <div class="card">
         <h2>📁 Groups</h2>
         <p class="card-hint">Manage Secret Santa groups by year.</p>
-        <div class="input-row" style="margin-bottom:1rem;">
+        <div class="input-row" style="margin-bottom:1rem;flex-wrap:wrap;">
             <input type="text" id="groupName" placeholder="Group name" autocomplete="off">
             <input type="number" id="groupYear" placeholder="Year" value="2025" style="max-width:100px;">
+            <input type="number" id="groupBudget" placeholder="Budget" min="0" step="1" style="max-width:110px;">
+            <input type="text" id="groupCurrency" placeholder="Currency" value="Kč" maxlength="8" style="max-width:90px;">
             <button class="btn btn-sm btn-secondary" id="addGroupBtn">Add Group</button>
         </div>
         <div id="groupsList"></div>
@@ -86,6 +88,14 @@
         <div class="form-group">
             <label>Year</label>
             <input type="number" id="editGroupYear">
+        </div>
+        <div class="form-group">
+            <label>Budget (optional)</label>
+            <input type="number" id="editGroupBudget" min="0" step="1" placeholder="e.g. 500">
+        </div>
+        <div class="form-group">
+            <label>Currency</label>
+            <input type="text" id="editGroupCurrency" maxlength="8" placeholder="Kč">
         </div>
         <button class="btn btn-primary btn-block" id="saveGroupBtn">Save</button>
         <button class="btn btn-secondary btn-block" onclick="closeEditGroup()" style="margin-top:0.5rem;">Cancel</button>
@@ -226,6 +236,7 @@ function esc(s) {
 async function loadGroups() {
     const res = await fetch(`${API}/admin/groups`);
     const groups = await res.json();
+    window._groups = groups;
     const container = document.getElementById('groupsList');
     if (groups.length === 0) {
         container.innerHTML = '<p class="empty-hint">No groups yet. Create one below.</p>';
@@ -235,10 +246,10 @@ async function loadGroups() {
         <div class="group-item ${g.id === selectedGroupId ? 'selected' : ''}" data-id="${g.id}">
             <div>
                 <div class="group-item-name">${esc(g.name)} <span style="color:var(--text-muted);font-weight:400;">(${g.year})</span></div>
-                <div class="group-item-meta">${g.user_count} users · ${g.draw_count} draw${g.draw_count !== 1 ? 's' : ''}</div>
+                <div class="group-item-meta">${g.user_count} users · ${g.draw_count} draw${g.draw_count !== 1 ? 's' : ''}${g.budget != null ? ' · 🎯 ' + esc(String(g.budget)) + ' ' + esc(g.currency || 'Kč') : ''}</div>
             </div>
             <div class="group-item-actions">
-                <button class="btn btn-sm" onclick="event.stopPropagation(); editGroup(${g.id}, '${esc(g.name)}', ${g.year})">✏️ Edit</button>
+                <button class="btn btn-sm" onclick="event.stopPropagation(); editGroup(${g.id})">✏️ Edit</button>
                 <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteGroup(${g.id})">Delete</button>
             </div>
         </div>
@@ -250,16 +261,20 @@ async function loadGroups() {
 
 async function addGroup() {
     const name = document.getElementById('groupName').value.trim();
-    const year = parseInt(document.getElementById('groupYear').value) || 2024;
+    const year = parseInt(document.getElementById('groupYear').value) || new Date().getFullYear();
+    const budgetRaw = document.getElementById('groupBudget').value.trim();
+    const budget = budgetRaw === '' ? null : parseFloat(budgetRaw);
+    const currency = document.getElementById('groupCurrency').value.trim() || 'Kč';
     if (!name) { alert('Group name required'); return; }
     const res = await fetch(`${API}/admin/groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, year })
+        body: JSON.stringify({ name, year, budget, currency })
     });
     const data = await res.json();
     if (res.ok) {
         document.getElementById('groupName').value = '';
+        document.getElementById('groupBudget').value = '';
         selectGroup(data.id);
         loadGroups();
     } else {
@@ -267,9 +282,13 @@ async function addGroup() {
     }
 }
 
-async function editGroup(id, name, year) {
-    document.getElementById('editGroupName').value = name;
-    document.getElementById('editGroupYear').value = year;
+async function editGroup(id) {
+    const g = (window._groups || []).find(x => x.id === id);
+    if (!g) return;
+    document.getElementById('editGroupName').value = g.name;
+    document.getElementById('editGroupYear').value = g.year;
+    document.getElementById('editGroupBudget').value = g.budget != null ? g.budget : '';
+    document.getElementById('editGroupCurrency').value = g.currency || 'Kč';
     document.getElementById('editGroupModal').style.display = 'flex';
     window._editGroupId = id;
 }
@@ -282,12 +301,15 @@ function closeEditGroup() {
 async function saveGroup() {
     const id = window._editGroupId;
     const name = document.getElementById('editGroupName').value.trim();
-    const year = parseInt(document.getElementById('editGroupYear').value) || 2024;
+    const year = parseInt(document.getElementById('editGroupYear').value) || new Date().getFullYear();
+    const budgetRaw = document.getElementById('editGroupBudget').value.trim();
+    const budget = budgetRaw === '' ? null : parseFloat(budgetRaw);
+    const currency = document.getElementById('editGroupCurrency').value.trim() || 'Kč';
     if (!name) { alert('Group name required'); return; }
     const res = await fetch(`${API}/admin/groups/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, year })
+        body: JSON.stringify({ name, year, budget, currency })
     });
     const data = await res.json();
     if (res.ok) {
@@ -301,7 +323,7 @@ async function saveGroup() {
 
 function editGroupFromList() {
     if (!selectedGroupInfo) return;
-    editGroup(selectedGroupInfo.id, selectedGroupInfo.name, selectedGroupInfo.year);
+    editGroup(selectedGroupInfo.id);
 }
 
 async function deleteGroup(id) {

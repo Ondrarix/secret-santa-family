@@ -1,29 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="dashboard">
-    <h1>Welcome, {{ current_user.name }}! 🎄</h1>
+    <h1><span data-i18n="dash.welcome">Welcome</span>, {{ current_user.name }}! 🎄</h1>
     {% if group %}
-    <p class="group-label" style="color:var(--text-muted);margin-bottom:1.5rem;">{{ group.name }} ({{ group.year }})</p>
+    <p class="group-label" style="color:var(--text-muted);margin-bottom:0.75rem;">{{ group.name }} ({{ group.year }})</p>
     {% endif %}
+
+    <!-- Budget banner (shown only when a budget is set) -->
+    <div id="budget-banner" class="budget-banner" style="display:none;">
+        🎯 <span data-i18n="dash.budget">Gift budget</span>: <strong id="budget-value"></strong>
+    </div>
 
     <!-- My Assignment -->
     <div class="card">
-        <h2>🎁 Your Assignment</h2>
+        <h2>🎁 <span data-i18n="dash.assignment">Your Assignment</span></h2>
         <div id="assignment-container">
-            <div class="loading">Loading...</div>
+            <div class="loading" data-i18n="common.loading">Loading...</div>
         </div>
     </div>
 
     <!-- My Exclusions -->
     <div class="card">
-        <h2>🚫 My Exclusions</h2>
-        <p class="card-hint">People you don't want to draw. (Admin can override these.)</p>
+        <h2>🚫 <span data-i18n="dash.exclusions">My Exclusions</span></h2>
+        <p class="card-hint" data-i18n="dash.exclusions_hint">People you don't want to draw. (Admin can override these.)</p>
         <div id="exclusion-form">
             <div class="input-row">
                 <select id="exclusion-select" disabled>
-                    <option>Loading...</option>
+                    <option data-i18n="common.loading">Loading...</option>
                 </select>
-                <button class="btn btn-sm btn-secondary" id="add-exclusion-btn" disabled>Add</button>
+                <button class="btn btn-sm btn-secondary" id="add-exclusion-btn" data-i18n="common.add" disabled>Add</button>
             </div>
         </div>
         <ul id="exclusion-list" class="exclusion-list"></ul>
@@ -31,14 +36,14 @@
 
     <!-- Christmas Wishes -->
     <div class="card">
-        <h2>🎄 Christmas Wishes</h2>
-        <p class="card-hint">Share your wish list! The person you draw will see what you want.</p>
+        <h2>🎄 <span data-i18n="dash.wishes">Christmas Wishes</span></h2>
+        <p class="card-hint" data-i18n="dash.wishes_hint">Share your wish list! The person you draw will see what you want.</p>
         <div id="wish-form">
             <div class="form-group">
-                <textarea id="wishText" placeholder="What are you wishing for this Christmas? (max 500 characters)" rows="4" maxlength="500"></textarea>
+                <textarea id="wishText" data-i18n-ph="dash.wishes_ph" placeholder="What are you wishing for this Christmas? (max 500 characters)" rows="4" maxlength="500"></textarea>
                 <small style="color:var(--text-muted);" id="wishCount">0 / 500</small>
             </div>
-            <button class="btn btn-secondary btn-block" id="saveWishBtn">Save My Wish</button>
+            <button class="btn btn-secondary btn-block" id="saveWishBtn" data-i18n="dash.save_wish">Save My Wish</button>
             <div id="wish-result" style="margin-top:0.5rem;"></div>
         </div>
         <div id="wish-display" style="margin-top:1rem;"></div>
@@ -46,31 +51,74 @@
 
     <!-- Recipient Wish -->
     <div class="card" id="recipient-wish-card" style="display:none;">
-        <h2>🎁 Recipient's Wish</h2>
-        <p class="card-hint">What the person you drew is wishing for:</p>
-        <div id="recipient-wish-content">Loading...</div>
+        <h2>🎁 <span data-i18n="dash.recipient_wish">Recipient's Wish</span></h2>
+        <p class="card-hint" data-i18n="dash.recipient_wish_hint">What the person you drew is wishing for:</p>
+        <div id="recipient-wish-content" data-i18n="common.loading">Loading...</div>
+    </div>
+
+    <!-- Ask Your Recipient (anonymous Q&A, giver side) -->
+    <div class="card" id="ask-card" style="display:none;">
+        <h2>❓ <span data-i18n="qa.ask_title">Ask Your Recipient</span></h2>
+        <p class="card-hint" data-i18n="qa.ask_hint">Ask the person you drew an anonymous question. They won't see who's asking.</p>
+        <div class="form-group">
+            <textarea id="askText" data-i18n-ph="qa.ask_ph" placeholder="Type a question" rows="2" maxlength="500"></textarea>
+        </div>
+        <button class="btn btn-secondary btn-block" id="askBtn" data-i18n="qa.ask_button">Send Question</button>
+        <div id="ask-result" style="margin-top:0.5rem;"></div>
+        <ul id="ask-list" class="qa-list" style="margin-top:1rem;"></ul>
+    </div>
+
+    <!-- Questions About Your Gift (anonymous Q&A, recipient side) -->
+    <div class="card" id="incoming-card" style="display:none;">
+        <h2>💬 <span data-i18n="qa.incoming_title">Questions About Your Gift</span></h2>
+        <p class="card-hint" data-i18n="qa.incoming_hint">Someone is asking you anonymously. Answer to get a better gift!</p>
+        <ul id="incoming-list" class="qa-list"></ul>
     </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 const API = '/api';
+let _hasAssignment = false;
+
+function fmtBudget(budget, currency) {
+    // Czech-style: "500 Kč"; symbol currencies kept compact.
+    const n = Number(budget);
+    const val = Number.isInteger(n) ? n.toString() : n.toFixed(2);
+    return `${val} ${currency || 'Kč'}`;
+}
+
+async function loadMe() {
+    const res = await fetch(`${API}/me`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const banner = document.getElementById('budget-banner');
+    if (data.budget != null && banner) {
+        document.getElementById('budget-value').textContent = fmtBudget(data.budget, data.currency);
+        banner.style.display = 'block';
+    }
+}
 
 async function loadAssignment() {
     const res = await fetch(`${API}/me/assignment`);
     const data = await res.json();
     const container = document.getElementById('assignment-container');
     if (data.name) {
+        _hasAssignment = true;
         container.innerHTML = `
             <div class="assignment-revealed">
-                <span class="assignment-label">You are giving to:</span>
+                <span class="assignment-label" data-i18n="dash.giving_to">${t('dash.giving_to')}</span>
                 <span class="assignment-name">${esc(data.name)}</span>
                 <div class="assignment-emoji">🎁</div>
             </div>`;
+        // Reveal the "ask your recipient" card once a draw exists.
+        const askCard = document.getElementById('ask-card');
+        if (askCard) askCard.style.display = 'block';
+        loadMyQuestions();
     } else {
         container.innerHTML = `
             <div class="assignment-pending">
-                <p>${esc(data.message || 'No assignment yet.')}</p>
+                <p>${esc(data.message || t('dash.no_assignment'))}</p>
             </div>`;
     }
 }
@@ -81,7 +129,7 @@ async function loadExclusions() {
 
     const select = document.getElementById('exclusion-select');
     const others = data.others || [];
-    select.innerHTML = '<option value="">Select someone to exclude...</option>' +
+    select.innerHTML = `<option value="">${t('dash.exclusions_select')}</option>` +
         others.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
     select.disabled = false;
 
@@ -91,7 +139,7 @@ async function loadExclusions() {
 function renderExclusionList(excluded) {
     const list = document.getElementById('exclusion-list');
     if (excluded.length === 0) {
-        list.innerHTML = '<li class="empty-hint">No exclusions set.</li>';
+        list.innerHTML = `<li class="empty-hint">${t('dash.no_exclusions')}</li>`;
         return;
     }
     list.innerHTML = excluded.map(e => `
@@ -105,7 +153,7 @@ function renderExclusionList(excluded) {
         btn.addEventListener('click', async () => {
             const id = btn.dataset.id;
             const name = excluded.find(x => x.id == id)?.name;
-            if (!confirm(`Remove exclusion: ${name}?`)) return;
+            if (!confirm(`${t('common.remove')}: ${name}?`)) return;
             const res = await fetch(`${API}/user/exclusions/${id}`, { method: 'DELETE' });
             if (res.ok) loadExclusions();
             else alert('Failed to remove exclusion');
@@ -115,7 +163,7 @@ function renderExclusionList(excluded) {
 
 function esc(s) {
     const d = document.createElement('div');
-    d.textContent = s;
+    d.textContent = s == null ? '' : s;
     return d.innerHTML;
 }
 
@@ -146,8 +194,6 @@ document.getElementById('exclusion-select').addEventListener('change', function(
     document.getElementById('add-exclusion-btn').disabled = !this.value;
 });
 
-// Password change moved to Settings (⚙️) in top bar
-
 // Wish counter
 const wishText = document.getElementById('wishText');
 wishText.addEventListener('input', () => {
@@ -156,14 +202,14 @@ wishText.addEventListener('input', () => {
 
 document.getElementById('saveWishBtn').addEventListener('click', async () => {
     const text = wishText.value.trim();
+    const result = document.getElementById('wish-result');
     if (!text) {
-        document.getElementById('wish-result').innerHTML = '<div class="alert alert-error">Wish cannot be empty.</div>';
+        result.innerHTML = '<div class="alert alert-error">' + t('dash.wish_empty') + '</div>';
         return;
     }
-    const result = document.getElementById('wish-result');
     const btn = document.getElementById('saveWishBtn');
     btn.disabled = true;
-    btn.textContent = 'Saving...';
+    btn.textContent = '...';
 
     const res = await fetch(`${API}/me/wish`, {
         method: 'POST',
@@ -172,13 +218,13 @@ document.getElementById('saveWishBtn').addEventListener('click', async () => {
     });
     const data = await res.json();
     if (res.ok) {
-        result.innerHTML = '<div class="alert alert-success">✅ Wish saved!</div>';
+        result.innerHTML = '<div class="alert alert-success">' + t('dash.wish_saved') + '</div>';
         loadRecipientWish();
     } else {
-        result.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
+        result.innerHTML = '<div class="alert alert-error">' + esc(data.error) + '</div>';
     }
     btn.disabled = false;
-    btn.textContent = 'Save My Wish';
+    btn.textContent = t('dash.save_wish');
 });
 
 async function loadWish() {
@@ -199,16 +245,119 @@ async function loadRecipientWish() {
     if (data.name) {
         card.style.display = "block";
         contentDiv.innerHTML = `
-            <p style="color:var(--text-muted);font-size:0.9rem;">${data.name} wishes for:</p>
+            <p style="color:var(--text-muted);font-size:0.9rem;">${esc(data.name)}:</p>
             <div class="wish-display">${esc(data.wish)}</div>`;
     } else {
         card.style.display = "none";
     }
 }
 
+/* ── Anonymous Q&A ── */
+function fmtDate(s) {
+    if (!s) return '';
+    const d = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z'));
+    return isNaN(d) ? '' : d.toLocaleDateString(getLang() === 'cs' ? 'cs-CZ' : 'en-GB');
+}
+
+async function loadMyQuestions() {
+    const list = document.getElementById('ask-list');
+    if (!list) return;
+    const res = await fetch(`${API}/me/questions`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const qs = data.questions || [];
+    if (qs.length === 0) {
+        list.innerHTML = `<li class="empty-hint">${t('qa.no_questions')}</li>`;
+        return;
+    }
+    list.innerHTML = qs.map(q => `
+        <li class="qa-item">
+            <div class="qa-q">❓ ${esc(q.question)}</div>
+            ${q.answer
+                ? `<div class="qa-a"><strong>${t('qa.answer_label')}</strong> ${esc(q.answer)}</div>`
+                : `<div class="qa-pending">${t('qa.waiting_answer')}</div>`}
+        </li>`).join('');
+}
+
+document.getElementById('askBtn').addEventListener('click', async () => {
+    const ta = document.getElementById('askText');
+    const text = ta.value.trim();
+    const result = document.getElementById('ask-result');
+    if (!text) return;
+    const btn = document.getElementById('askBtn');
+    btn.disabled = true;
+    const res = await fetch(`${API}/me/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: text })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        result.innerHTML = '<div class="alert alert-success">' + t('qa.ask_sent') + '</div>';
+        ta.value = '';
+        loadMyQuestions();
+    } else {
+        result.innerHTML = '<div class="alert alert-error">' + esc(data.error) + '</div>';
+    }
+    btn.disabled = false;
+});
+
+async function loadIncomingQuestions() {
+    const card = document.getElementById('incoming-card');
+    const list = document.getElementById('incoming-list');
+    if (!card) return;
+    const res = await fetch(`${API}/me/incoming-questions`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const qs = data.questions || [];
+    if (qs.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = 'block';
+    list.innerHTML = qs.map(q => `
+        <li class="qa-item" data-qid="${q.id}">
+            <div class="qa-q">❓ ${esc(q.question)}</div>
+            ${q.answer
+                ? `<div class="qa-a"><strong>${t('qa.answer_label')}</strong> ${esc(q.answer)} <span class="qa-done">${t('qa.answered')}</span></div>`
+                : `<div class="qa-answer-form">
+                     <textarea class="qa-answer-input" data-i18n-ph="qa.answer_ph" placeholder="${t('qa.answer_ph')}" rows="2" maxlength="500"></textarea>
+                     <button class="btn btn-sm btn-secondary qa-answer-btn">${t('qa.answer_button')}</button>
+                   </div>`}
+        </li>`).join('');
+
+    list.querySelectorAll('.qa-answer-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const li = btn.closest('.qa-item');
+            const qid = li.dataset.qid;
+            const answer = li.querySelector('.qa-answer-input').value.trim();
+            if (!answer) return;
+            btn.disabled = true;
+            const res = await fetch(`${API}/me/incoming-questions/${qid}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ answer })
+            });
+            if (res.ok) loadIncomingQuestions();
+            else { btn.disabled = false; alert('Failed'); }
+        });
+    });
+}
+
+// Re-render dynamic content when language changes.
+document.addEventListener('langchanged', () => {
+    loadExclusions();
+    loadMyQuestions();
+    loadIncomingQuestions();
+    if (_hasAssignment) loadAssignment();
+    document.getElementById('saveWishBtn').textContent = t('dash.save_wish');
+});
+
+loadMe();
 loadAssignment();
 loadExclusions();
 loadWish();
 loadRecipientWish();
+loadIncomingQuestions();
 </script>
 {% endblock %}

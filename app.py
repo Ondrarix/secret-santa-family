@@ -80,6 +80,8 @@ def init_db():
             name TEXT NOT NULL,
             year INTEGER NOT NULL,
             description TEXT DEFAULT '',
+            budget REAL,
+            currency TEXT DEFAULT 'Kč',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS users (
@@ -117,7 +119,28 @@ def init_db():
             wish_text TEXT NOT NULL DEFAULT '',
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            giver_id INTEGER NOT NULL,
+            recipient_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT,
+            asked_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            answered_at TEXT,
+            FOREIGN KEY (group_id) REFERENCES groups(id),
+            FOREIGN KEY (giver_id) REFERENCES users(id),
+            FOREIGN KEY (recipient_id) REFERENCES users(id)
+        );
     """)
+    conn.commit()
+
+    # ── Lightweight migrations for pre-existing databases ──
+    existing_cols = {r["name"] for r in conn.execute("PRAGMA table_info(groups)").fetchall()}
+    if "budget" not in existing_cols:
+        conn.execute("ALTER TABLE groups ADD COLUMN budget REAL")
+    if "currency" not in existing_cols:
+        conn.execute("ALTER TABLE groups ADD COLUMN currency TEXT DEFAULT 'Kč'")
     conn.commit()
     conn.close()
 
@@ -180,6 +203,22 @@ def generate_password(length=10):
             any(c.islower() for c in pw) and
             any(c.isdigit() for c in pw)):
             return pw
+
+
+def _parse_budget(data):
+    """Extract (budget, currency) from a request payload. budget is a float or None."""
+    raw = data.get("budget")
+    if raw is None or raw == "":
+        budget = None
+    else:
+        try:
+            budget = float(raw)
+            if budget < 0:
+                budget = None
+        except (ValueError, TypeError):
+            budget = None
+    currency = (data.get("currency") or "Kč").strip()[:8] or "Kč"
+    return budget, currency
 
 
 def sanitize_username(name):
@@ -263,6 +302,11 @@ def dashboard():
 def api_me():
     conn = get_db()
     user = conn.execute("SELECT * FROM users WHERE id = ?", (current_user.id,)).fetchone()
+    group = None
+    if user and user["group_id"]:
+        group = conn.execute(
+            "SELECT name, year, budget, currency FROM groups WHERE id = ?", (user["group_id"],)
+        ).fetchone()
     conn.close()
     if not user:
         return jsonify({"error": "not found"}), 404
@@ -271,7 +315,10 @@ def api_me():
         "username": user["username"],
         "name": user["display_name"],
         "is_admin": bool(user["is_admin"]),
-        "group_id": user["group_id"]
+        "group_id": user["group_id"],
+        "group_name": group["name"] if group else None,
+        "budget": group["budget"] if group else None,
+        "currency": (group["currency"] if group else None) or "Kč"
     })
 
 
@@ -283,7 +330,7 @@ def api_admin_groups():
         return jsonify({"error": "forbidden"}), 403
     conn = get_db()
     groups = conn.execute(
-        "SELECT id, name, year, description, created_at FROM groups ORDER BY year DESC, name"
+        "SELECT id, name, year, description, budget, currency, created_at FROM groups ORDER BY year DESC, name"
     ).fetchall()
     data = []
     for g in groups:
@@ -299,6 +346,8 @@ def api_admin_groups():
             "name": g["name"],
             "year": g["year"],
             "description": g["description"],
+            "budget": g["budget"],
+            "currency": g["currency"] or "Kč",
             "user_count": user_count,
             "draw_count": draw_count,
             "created_at": g["created_at"]
@@ -316,13 +365,14 @@ def api_admin_create_group():
     name = data.get("name", "").strip()
     year = data.get("year", datetime.now().year)
     description = data.get("description", "").strip()
+    budget, currency = _parse_budget(data)
     if not name:
         return jsonify({"error": "group name required"}), 400
     conn = get_db()
     try:
         cur = conn.execute(
-            "INSERT INTO groups (name, year, description) VALUES (?, ?, ?)",
-            (name, year, description)
+            "INSERT INTO groups (name, year, description, budget, currency) VALUES (?, ?, ?, ?, ?)",
+            (name, year, description, budget, currency)
         )
         conn.commit()
         group_id = cur.lastrowid
@@ -342,13 +392,14 @@ def api_admin_edit_group(group_id):
     name = data.get("name", "").strip()
     year = data.get("year")
     description = data.get("description", "").strip()
+    budget, currency = _parse_budget(data)
     if not name:
         return jsonify({"error": "group name required"}), 400
     conn = get_db()
     try:
         conn.execute(
-            "UPDATE groups SET name = ?, year = ?, description = ? WHERE id = ?",
-            (name, year, description, group_id)
+            "UPDATE groups SET name = ?, year = ?, description = ?, budget = ?, currency = ? WHERE id = ?",
+            (name, year, description, budget, currency, group_id)
         )
         conn.commit()
     except sqlite3.IntegrityError as e:
@@ -485,6 +536,8 @@ def api_admin_delete_user(group_id, user_id):
 
     conn.execute("DELETE FROM assignments WHERE giver_id = ? OR receiver_id = ?", (user_id, user_id))
     conn.execute("DELETE FROM exclusions WHERE user_id = ? OR excluded_user_id = ?", (user_id, user_id))
+    conn.execute("DELETE FROM questions WHERE giver_id = ? OR recipient_id = ?", (user_id, user_id))
+    conn.execute("DELETE FROM wishes WHERE user_id = ?", (user_id,))
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
@@ -987,6 +1040,119 @@ def api_my_recipient_wish():
     if wish_row and wish_row["wish_text"]:
         return jsonify({"wish": wish_row["wish_text"], "name": wish_row["display_name"]})
     return jsonify({"wish": None, "name": None})
+
+
+# ── User: Anonymous Q&A ──────────────────────────────────────────────
+def _my_recipient_id(conn):
+    """Return the user_id I (current_user) am giving to in my group, or None."""
+    row = conn.execute(
+        "SELECT receiver_id FROM assignments WHERE giver_id = ? AND group_id = ?",
+        (current_user.id, current_user.group_id)
+    ).fetchone()
+    return row["receiver_id"] if row else None
+
+
+@app.route("/api/me/questions", methods=["GET"])
+@login_required
+def api_my_questions():
+    """Questions I (as giver) have asked my recipient — with answers if given.
+    The recipient's identity IS known to the giver (it's who they drew), so we
+    return their name here; anonymity only protects the giver's identity."""
+    conn = get_db()
+    recipient_id = _my_recipient_id(conn)
+    if not recipient_id:
+        conn.close()
+        return jsonify({"recipient": None, "questions": []})
+    recipient = conn.execute(
+        "SELECT display_name FROM users WHERE id = ?", (recipient_id,)
+    ).fetchone()
+    rows = conn.execute(
+        "SELECT id, question, answer, asked_at, answered_at FROM questions "
+        "WHERE giver_id = ? AND recipient_id = ? AND group_id = ? ORDER BY asked_at",
+        (current_user.id, recipient_id, current_user.group_id)
+    ).fetchall()
+    conn.close()
+    return jsonify({
+        "recipient": recipient["display_name"] if recipient else None,
+        "questions": [{
+            "id": r["id"], "question": r["question"], "answer": r["answer"],
+            "asked_at": r["asked_at"], "answered_at": r["answered_at"]
+        } for r in rows]
+    })
+
+
+@app.route("/api/me/questions", methods=["POST"])
+@login_required
+def api_ask_question():
+    """Giver asks their recipient a question."""
+    data = request.get_json()
+    question = (data.get("question", "") or "").strip()[:500]
+    if not question:
+        return jsonify({"error": "question text required"}), 400
+    conn = get_db()
+    recipient_id = _my_recipient_id(conn)
+    if not recipient_id:
+        conn.close()
+        return jsonify({"error": "You don't have an assignment yet."}), 400
+    # Cap at 20 open/total questions per giver→recipient to prevent abuse.
+    count = conn.execute(
+        "SELECT COUNT(*) as c FROM questions WHERE giver_id = ? AND recipient_id = ? AND group_id = ?",
+        (current_user.id, recipient_id, current_user.group_id)
+    ).fetchone()["c"]
+    if count >= 20:
+        conn.close()
+        return jsonify({"error": "Question limit reached for this recipient."}), 400
+    conn.execute(
+        "INSERT INTO questions (group_id, giver_id, recipient_id, question) VALUES (?, ?, ?, ?)",
+        (current_user.group_id, current_user.id, recipient_id, question)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Question sent"})
+
+
+@app.route("/api/me/incoming-questions", methods=["GET"])
+@login_required
+def api_incoming_questions():
+    """Questions asked about MY gift (I am the recipient). Asker stays anonymous."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, question, answer, asked_at, answered_at FROM questions "
+        "WHERE recipient_id = ? AND group_id = ? ORDER BY asked_at",
+        (current_user.id, current_user.group_id)
+    ).fetchall()
+    conn.close()
+    # Deliberately omit giver_id — the asker is anonymous to the recipient.
+    return jsonify({"questions": [{
+        "id": r["id"], "question": r["question"], "answer": r["answer"],
+        "asked_at": r["asked_at"], "answered_at": r["answered_at"]
+    } for r in rows]})
+
+
+@app.route("/api/me/incoming-questions/<int:question_id>", methods=["POST"])
+@login_required
+def api_answer_question(question_id):
+    """Recipient answers a question about their gift."""
+    data = request.get_json()
+    answer = (data.get("answer", "") or "").strip()[:500]
+    if not answer:
+        return jsonify({"error": "answer text required"}), 400
+    conn = get_db()
+    # Only the recipient of this question may answer it.
+    q = conn.execute(
+        "SELECT id FROM questions WHERE id = ? AND recipient_id = ?",
+        (question_id, current_user.id)
+    ).fetchone()
+    if not q:
+        conn.close()
+        return jsonify({"error": "question not found"}), 404
+    conn.execute(
+        "UPDATE questions SET answer = ?, answered_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (answer, question_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Answer saved"})
 
 
 # ── Seed: Admin ──────────────────────────────────────────────────────
