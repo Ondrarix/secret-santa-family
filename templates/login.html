@@ -8,6 +8,7 @@
     <div class="alert alert-error">{{ error }}</div>
     {% endif %}
     <form method="post" id="loginForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
             <label for="username">Username</label>
             <input type="text" id="username" name="username" placeholder="Your username" required autofocus autocomplete="username">

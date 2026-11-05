@@ -122,28 +122,56 @@ secret-santa-hosted/
 ## Cloud Deployment (Optional)
 
 ### Option A: Render (Recommended)
+
+This repo includes a `render.yaml` blueprint and a `Procfile`, so Render can
+configure everything automatically.
+
 1. Push the code to a GitHub repo
-2. Go to https://render.com
-3. Create a new **Web Service**
-4. Connect your repo, set:
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `python app.py`
-5. Deploy — you get a `https://your-app.onrender.com` URL
+2. Go to https://render.com → **New → Blueprint**, connect the repo
+3. Render reads `render.yaml`:
+   - **Build:** `pip install -r requirements.txt`
+   - **Start:** `gunicorn app:app --bind 0.0.0.0:$PORT`
+   - **SECRET_KEY** is auto-generated and kept stable (sessions survive restarts)
+   - **FLASK_DEBUG** is set to `0` (debugger OFF in production)
+4. Deploy — you get a `https://your-app.onrender.com` URL
+
+> ⚠️ **Data persistence:** Render's free tier has an *ephemeral* filesystem —
+> the SQLite database resets on every deploy/restart. For data that must
+> survive, attach a **Render Disk** or migrate to Postgres.
+
+### Manual setup (any host)
+
+Set these environment variables, then run the start command:
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `SECRET_KEY` | **Required in production.** Stable session key. | `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `FLASK_DEBUG` | Leave unset or `0` in production. | `0` |
+| `PORT` | Port to bind. | `5000` |
+
+```
+pip install -r requirements.txt
+gunicorn app:app --bind 0.0.0.0:$PORT
+```
 
 ### Option B: Railway
 1. Go to https://railway.app
 2. New project → deploy from GitHub
-3. Set build/start commands same as Render
-4. Free tier gives you a live URL
+3. Railway uses the included `Procfile` automatically
+4. Set `SECRET_KEY` (and `FLASK_DEBUG=0`) in the service's variables
 
 ## Security Notes
 
-- Passwords are hashed with Werkzeug's security module
-- Flask-Login handles session management
+- Passwords are hashed with Werkzeug's security module (scrypt)
+- Flask-Login handles session management; cookies are `HttpOnly` + `SameSite=Lax`,
+  and `Secure` in production (set `INSECURE_COOKIES=1` only for local HTTP testing)
+- **CSRF protection** (Flask-WTF) guards every state-changing request
+- **Login rate limiting** — 10 attempts per IP per 5 minutes
 - Draw uses cryptographic randomness (`secrets.SystemRandom`)
+- Debugger is OFF by default (`FLASK_DEBUG` must be explicitly `1` to enable)
+- `SECRET_KEY` **must** be set in production — the app refuses to start without it
 - For production hosting, use HTTPS (both Render and Railway provide it automatically)
 - The SQLite database file contains all data — back it up if needed
-- Keep the `SECRET_KEY` as a random string in production
 
 ## Troubleshooting
 

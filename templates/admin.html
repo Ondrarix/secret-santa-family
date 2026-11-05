@@ -370,14 +370,14 @@ function renderUserTable() {
             <td>${u.exclusions}</td>
             <td>
                 <button class="btn btn-sm" onclick="editUser(${u.id}, '${esc(u.display_name)}', '${esc(u.username)}')">✏️ Edit</button>
-                ${!u.is_admin ? `<button class="btn btn-sm btn-danger btn-delete-user" data-id="${u.id}">Remove</button>` : ''}
+                ${!u.is_admin ? `<button class="btn btn-sm btn-danger btn-delete-user" data-id="${u.id}" data-name="${esc(u.display_name)}">Remove</button>` : ''}
             </td>
         </tr>
     `).join('');
 
     tbody.querySelectorAll('.btn-delete-user').forEach(btn => {
         btn.addEventListener('click', async () => {
-            if (!confirm(`Remove ${btn.dataset.id}?`)) return;
+            if (!confirm(`Remove ${btn.dataset.name}?`)) return;
             const res = await fetch(`${API}/admin/groups/${selectedGroupId}/users/${btn.dataset.id}`, { method: 'DELETE' });
             const data = await res.json();
             if (res.ok) {

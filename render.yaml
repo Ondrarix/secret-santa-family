@@ -1,0 +1,19 @@
+# Render deployment config.
+# Note: free-tier Render has an EPHEMERAL filesystem — the SQLite DB resets
+# on each deploy/restart. For persistent data, attach a Render Disk mounted
+# at the app directory, or migrate to Postgres.
+services:
+  - type: web
+    name: secret-santa-family
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 60
+    envVars:
+      # Generated once by Render and kept stable so sessions survive restarts.
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: PYTHON_VERSION
+        value: "3.12.7"

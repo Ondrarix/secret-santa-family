@@ -9,18 +9,55 @@ import string
 from datetime import datetime
 from functools import wraps
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 import sqlite3
 
 # ── App ──────────────────────────────────────────────────────────────
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+
+# SECRET_KEY must be stable across restarts, or every restart logs users out.
+# In production (SECRET_KEY unset) we fail loudly rather than silently rotating keys.
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
+    if os.environ.get("FLASK_DEBUG", "1") == "1":
+        # Dev convenience: stable-per-process ephemeral key.
+        _secret = secrets.token_hex(32)
+        print("⚠️  SECRET_KEY not set — using an ephemeral dev key (sessions reset on restart).")
+    else:
+        raise RuntimeError(
+            "SECRET_KEY environment variable must be set in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+app.secret_key = _secret
+
+# Secure session cookies. SESSION_COOKIE_SECURE is on unless explicitly disabled
+# (set INSECURE_COOKIES=1 for plain-HTTP local testing).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("INSECURE_COOKIES", "0") != "1",
+)
+
+# CSRF protection for all state-changing requests.
+csrf = CSRFProtect(app)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
+
+
+@app.after_request
+def set_csrf_cookie(response):
+    """Expose a readable CSRF token cookie so the fetch wrapper can send it back."""
+    response.set_cookie(
+        "csrf_token", generate_csrf(),
+        samesite="Lax",
+        secure=os.environ.get("INSECURE_COOKIES", "0") != "1",
+    )
+    return response
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "secret_santa.db")
 
@@ -113,6 +150,27 @@ def unauthorized():
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+# Simple in-memory login rate limiter (per IP). Adequate for a single-process
+# family app; resets on restart. Not for horizontally-scaled deployments.
+_login_attempts = {}  # ip -> [timestamps]
+_LOGIN_MAX_ATTEMPTS = 10
+_LOGIN_WINDOW_SECONDS = 300  # 5 minutes
+
+
+def _login_rate_limited(ip):
+    """Return True if this IP has exceeded the login attempt budget."""
+    import time
+    now = time.time()
+    attempts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    _login_attempts[ip] = attempts
+    return len(attempts) >= _LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_attempt(ip):
+    import time
+    _login_attempts.setdefault(ip, []).append(time.time())
+
+
 def generate_password(length=10):
     """Generate a secure random password."""
     chars = string.ascii_letters + string.digits + "!@"
@@ -147,6 +205,13 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+        if _login_rate_limited(ip):
+            return render_template(
+                "login.html",
+                error="Too many login attempts. Please wait a few minutes and try again."
+            ), 429
+        _record_login_attempt(ip)
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         user = None
@@ -183,6 +248,9 @@ def admin_panel():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    # Admin has no group — send them to the admin panel instead of a broken dashboard.
+    if current_user.is_admin and not current_user.group_id:
+        return redirect(url_for("admin_panel"))
     conn = get_db()
     group = conn.execute("SELECT * FROM groups WHERE id = ?", (current_user.group_id,)).fetchone()
     conn.close()
@@ -223,7 +291,8 @@ def api_admin_groups():
             "SELECT COUNT(*) as cnt FROM users WHERE group_id = ?", (g["id"],)
         ).fetchone()["cnt"]
         draw_count = conn.execute(
-            "SELECT COUNT(DISTINCT drawn_at) as cnt FROM assignments WHERE group_id = ?", (g["id"],)
+            "SELECT CASE WHEN EXISTS(SELECT 1 FROM assignments WHERE group_id = ?) THEN 1 ELSE 0 END as cnt",
+            (g["id"],)
         ).fetchone()["cnt"]
         data.append({
             "id": g["id"],
@@ -245,7 +314,7 @@ def api_admin_create_group():
         return jsonify({"error": "forbidden"}), 403
     data = request.get_json()
     name = data.get("name", "").strip()
-    year = data.get("year", 2024)
+    year = data.get("year", datetime.now().year)
     description = data.get("description", "").strip()
     if not name:
         return jsonify({"error": "group name required"}), 400
@@ -958,6 +1027,7 @@ def seed_family_group():
     )
     group_id = cur.lastrowid
 
+    created = []
     for name in FAMILY_USERS:
         pw = generate_password(10)
         username = sanitize_username(name)
@@ -965,27 +1035,28 @@ def seed_family_group():
             "INSERT INTO users (username, password_hash, display_name, group_id) VALUES (?, ?, ?, ?)",
             (username, generate_password_hash(pw), name, group_id)
         )
+        created.append((name, username, pw))
     conn.commit()
     conn.close()
     print(f"Created family group 'Rodina 2024' with {len(FAMILY_USERS)} users")
-    print("\nUser credentials:")
-    for name in FAMILY_USERS:
-        username = sanitize_username(name)
-        pw = generate_password(10)
+    print("\nUser credentials (save these — they are not recoverable later):")
+    for name, username, pw in created:
         print(f"  {name:12s}  →  {username:12s}  /  {pw}")
 
 
 # ── Bootstrap ────────────────────────────────────────────────────────
+# Runs on import (dev server AND gunicorn) so the DB and admin always exist.
 init_db()
 seed_admin()
+seed_family_group()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
+    # Debug defaults OFF — must be explicitly enabled. The Werkzeug debugger
+    # is a remote-code-execution risk if ever exposed in production.
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     host = os.environ.get("HOST", "0.0.0.0")
     print(f"🎅 Secret Santa running at http://{host}:{port}")
-    print(f"   Default admin: admin / secret")
-    print(f"   Change password after first login!")
-    # Seed family group (must come after admin creates group_id=1)
-    seed_family_group()
+    if debug:
+        print("   Default admin: admin / secret  (change the password after first login!)")
     app.run(host=host, port=port, debug=debug)
