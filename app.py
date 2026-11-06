@@ -59,7 +59,13 @@ def set_csrf_cookie(response):
     )
     return response
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "secret_santa.db")
+# Database location.
+# In production, set DB_DIR to a persistent mount (e.g. a Render Disk at /data)
+# so the SQLite file survives restarts/redeploys. Locally it defaults to the
+# app directory, keeping dev behaviour unchanged.
+_DB_DIR = os.environ.get("DB_DIR") or os.path.dirname(os.path.abspath(__file__))
+os.makedirs(_DB_DIR, exist_ok=True)
+DB_PATH = os.path.join(_DB_DIR, "secret_santa.db")
 
 
 # ── Database Helpers ─────────────────────────────────────────────────

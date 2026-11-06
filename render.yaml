@@ -1,12 +1,13 @@
 # Render deployment config.
-# Note: free-tier Render has an EPHEMERAL filesystem — the SQLite DB resets
-# on each deploy/restart. For persistent data, attach a Render Disk mounted
-# at the app directory, or migrate to Postgres.
+# This service uses a persistent Render Disk mounted at /data so the SQLite
+# database survives restarts and redeploys. The DB_DIR env var points the app
+# at that mount. NOTE: disks require a paid instance type (free tier has no
+# persistent disk), hence plan: starter.
 services:
   - type: web
     name: secret-santa-family
     runtime: python
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 60
     envVars:
@@ -17,3 +18,10 @@ services:
         value: "0"
       - key: PYTHON_VERSION
         value: "3.12.7"
+      # Point the SQLite database at the persistent disk mount below.
+      - key: DB_DIR
+        value: /data
+    disk:
+      name: secret-santa-data
+      mountPath: /data
+      sizeGB: 1
